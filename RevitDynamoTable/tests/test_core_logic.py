@@ -9,7 +9,7 @@ tham chiếu ô, vùng, công thức lồng nhau), và các hàm tiện ích
 Vì môi trường này không có Revit/Dynamo/pythonnet, các module .NET
 (clr, Autodesk, RevitServices, System.*) được "giả lập" (mock) tối
 thiểu trước khi import file script, để chỉ riêng phần LOGIC THUẦN
-PYTHON (không đụng Revit API / WPF) được nạp và kiểm thử thật.
+PYTHON (không đụng Revit API / WinForms) được nạp và kiểm thử thật.
 
 Chạy:  python3 RevitDynamoTable/tests/test_core_logic.py
 """
@@ -45,6 +45,7 @@ def _install_fake_revit_modules():
 
     db.XYZ = _Dummy
     db.Transaction = _Dummy
+    db.SubTransaction = _Dummy
     db.BuiltInParameter = types.SimpleNamespace(ALL_MODEL_INSTANCE_COMMENTS=1)
     db.SectionType = types.SimpleNamespace(Body=0)
     db.StorageType = types.SimpleNamespace(String=1, Double=2, Integer=3, ElementId=4, none=0)
@@ -53,34 +54,16 @@ def _install_fake_revit_modules():
     # DYNAMO_ENV = False và dùng nhánh Transaction thường (đã có sẵn
     # try/except trong script cho trường hợp này) -> không cần giả lập.
 
-    # System.* cho phần WPF (không được gọi tới trong test logic thuần,
-    # nhưng cần tồn tại để dòng import ở đầu file không crash).
+    # System.Windows.Forms / System.Drawing (GUI WinForms) — CỐ TÌNH
+    # không giả lập: script tự bọc try/except quanh các import này và tự
+    # đặt GUI_AVAILABLE=False khi không có (đúng thứ đang xảy ra trong môi
+    # trường test này, không phải Windows/.NET thật). Phần logic thuần
+    # Python (dò lưới, FormulaEngine) không phụ thuộc gì vào GUI_AVAILABLE
+    # nên vẫn kiểm thử được đầy đủ mà không cần WinForms/pythonnet thật.
     system = fake_module("System")
     system.String = str
     system.Action = lambda f: f
     system.Int32 = int
-
-    io_mod = fake_module("System.IO")
-    io_mod.StringReader = _Dummy
-
-    xml_mod = fake_module("System.Xml")
-    xml_mod.XmlReader = types.SimpleNamespace(Create=lambda *a, **k: None)
-
-    markup_mod = fake_module("System.Windows.Markup")
-    markup_mod.XamlReader = types.SimpleNamespace(Load=lambda *a, **k: None)
-
-    threading_mod = fake_module("System.Windows.Threading")
-    threading_mod.DispatcherPriority = types.SimpleNamespace(Background=0)
-
-    data_mod = fake_module("System.Data")
-    data_mod.DataTable = _Dummy
-    data_mod.DataColumn = _Dummy
-
-    controls_mod = fake_module("System.Windows.Controls")
-    controls_mod.DataGridTextColumn = _Dummy
-
-    data_binding_mod = fake_module("System.Windows.Data")
-    data_binding_mod.Binding = _Dummy
 
 
 _install_fake_revit_modules()

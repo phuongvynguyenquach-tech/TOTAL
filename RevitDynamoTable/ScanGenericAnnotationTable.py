@@ -14,11 +14,11 @@ CHỨC NĂNG (những gì script này làm):
      Schedule / Text trước đó) để nạp vào lưới dữ liệu ban đầu.
   4. (Tuỳ chọn) Đọc thêm 1 Schedule (ViewSchedule) để lấy dữ liệu gốc, tự
      điền vào các ô annotation đang còn TRỐNG.
-  5. Mở GIAO DIỆN GUI (WPF, theme tối sang trọng – vàng đồng "chuẩn men")
-     giống một bảng Excel: xem, sửa, chọn vùng để xem SUM/AVERAGE/MIN/MAX/
-     PRODUCT tức thời (thanh trạng thái kiểu Excel), chèn công thức
-     =SUM(...) / =PRODUCT(...) / =A/B vào ô đích, công thức tự tính lại
-     mỗi khi có ô nguồn thay đổi (giống Excel thật).
+  5. Mở GIAO DIỆN GUI (WinForms, theme tối sang trọng – vàng đồng
+     "chuẩn men") giống một bảng Excel: xem, sửa, bôi chọn 1 vùng rồi bấm
+     "Σ Xem nhanh" để xem SUM/AVERAGE/MIN/MAX/PRODUCT, chọn hàm rồi bấm
+     "➕ Chèn công thức" để chèn =SUM(...)/=PRODUCT(...)/=AVERAGE(...)/
+     =A/B vào ô đích, bấm "⟲ Tính lại" để tính lại toàn bộ công thức.
   6. Khi bấm "Cập nhật vào Revit": ghi toàn bộ giá trị đã tính vào lại
      đúng parameter chữ của từng Generic Annotation tương ứng, TRONG 1
      TRANSACTION DUY NHẤT (siêu nhanh — không mở/đóng transaction theo
@@ -77,7 +77,7 @@ clr.AddReference('RevitAPI')
 clr.AddReference('RevitAPIUI')
 import Autodesk
 from Autodesk.Revit.DB import (
-    XYZ, Transaction, BuiltInParameter,
+    XYZ, Transaction, SubTransaction, BuiltInParameter,
 )
 
 try:
@@ -94,23 +94,47 @@ try:
     from RevitServices.Transactions import TransactionManager
 except Exception:
     DYNAMO_ENV = False
+    TransactionManager = None
 
-clr.AddReference('PresentationFramework')
-clr.AddReference('PresentationCore')
-clr.AddReference('WindowsBase')
-clr.AddReference('System.Xaml')
-clr.AddReference('System.Data')
-clr.AddReference('System.Xml')
-
-import System
-from System import String, Action
-from System.IO import StringReader
-from System.Xml import XmlReader
-from System.Windows.Markup import XamlReader
-from System.Windows.Threading import DispatcherPriority
-from System.Data import DataTable, DataColumn
-from System.Windows.Controls import DataGridTextColumn
-from System.Windows.Data import Binding
+# --------------------------------------------------------------------
+# GUI: WinForms, KHÔNG dùng WPF/XAML.
+#
+# QUAN TRỌNG — lý do đổi từ WPF sang WinForms "eventless":
+# Trên Dynamo 2.19 / Revit 2024 với engine CPython3 (PythonNet 2.5.x),
+# việc Python ĐĂNG KÝ sự kiện .NET (vd `control.add_Click(handler)`,
+# `control.Click += handler`) hoặc KẾ THỪA (subclass) một control .NET
+# (vd `class MyForm(Form)`) có thể ném lỗi:
+#   "Constructor on type 'System.Reflection.Emit.TypeBuilder' not found"
+# vì PythonNet cần tạo assembly động (TypeBuilder) để nối callback Python
+# vào delegate .NET, và việc phát assembly động bị chặn trong tiến trình
+# Revit/Dynamo. Cách né hoàn toàn an toàn — dùng ở mọi engine — là:
+#   1) KHÔNG BAO GIỜ subclass bất kỳ kiểu .NET nào;
+#   2) KHÔNG BAO GIỜ đăng ký sự kiện .NET từ Python;
+#   3) Tương tác qua Button.DialogResult + Form.ShowDialog() (100% xử lý
+#      trong .NET, không cần callback Python), với 1 vòng lặp Python bên
+#      ngoài dựng lại cửa sổ ở mỗi bước — kiểu "wizard eventless".
+# --------------------------------------------------------------------
+GUI_AVAILABLE = False
+GUI_IMPORT_ERROR = ""
+try:
+    clr.AddReference('System.Windows.Forms')
+    clr.AddReference('System.Drawing')
+    from System.Windows.Forms import (
+        Form, Label, TextBox, Button, ComboBox, ComboBoxStyle, Panel, DockStyle,
+        DataGridView, DataGridViewTextBoxColumn, DataGridViewSelectionMode,
+        DataGridViewColumnHeadersHeightSizeMode, DataGridViewAutoSizeColumnsMode,
+        DataGridViewColumnSortMode,
+        DialogResult, FormStartPosition, FormBorderStyle, FlatStyle,
+        MessageBox, MessageBoxButtons, MessageBoxIcon, Application,
+    )
+    from System.Drawing import Color, Font, FontStyle, Point, Size, GraphicsUnit, SystemFonts
+    try:
+        from System import Single
+    except Exception:
+        Single = float
+    GUI_AVAILABLE = True
+except Exception as _gui_exc:
+    GUI_IMPORT_ERROR = str(_gui_exc)
 
 if DYNAMO_ENV:
     doc = DocumentManager.Instance.CurrentDBDocument
@@ -691,183 +715,405 @@ def format_value(v):
 
 
 # ------------------------------------------------------------------------
-# 5. GIAO DIỆN GUI — WPF, THEME TỐI SANG TRỌNG VÀNG ĐỒNG
+# 5. GIAO DIỆN GUI — WINFORMS "EVENTLESS", THEME TỐI SANG TRỌNG VÀNG ĐỒNG
 # ------------------------------------------------------------------------
-XAML = u"""
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="BẢNG DỮ LIỆU GENERIC ANNOTATION — EXCEL LIVE"
-        Width="1240" Height="760" MinWidth="900" MinHeight="500"
-        WindowStartupLocation="CenterScreen"
-        Background="{bg}" FontFamily="Segoe UI" ResizeMode="CanResizeWithGrip">
-  <Window.Resources>
-    <SolidColorBrush x:Key="Gold" Color="{gold}"/>
-    <SolidColorBrush x:Key="GoldDark" Color="{gold_dark}"/>
-    <SolidColorBrush x:Key="PanelBrush" Color="{panel}"/>
-    <SolidColorBrush x:Key="Panel2Brush" Color="{panel2}"/>
-    <SolidColorBrush x:Key="TextBrush" Color="{text}"/>
-    <SolidColorBrush x:Key="TextDimBrush" Color="{text_dim}"/>
-    <SolidColorBrush x:Key="GridLineBrush" Color="{grid_line}"/>
-    <SolidColorBrush x:Key="RowAltBrush" Color="{row_alt}"/>
-
-    <Style x:Key="GoldButton" TargetType="Button">
-      <Setter Property="Background" Value="{panel2}"/>
-      <Setter Property="Foreground" Value="{gold}"/>
-      <Setter Property="BorderBrush" Value="{gold_dark}"/>
-      <Setter Property="BorderThickness" Value="1"/>
-      <Setter Property="Padding" Value="14,7"/>
-      <Setter Property="Margin" Value="4,0"/>
-      <Setter Property="FontWeight" Value="SemiBold"/>
-      <Setter Property="Cursor" Value="Hand"/>
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border x:Name="bd" Background="{{TemplateBinding Background}}"
-                    BorderBrush="{{TemplateBinding BorderBrush}}"
-                    BorderThickness="{{TemplateBinding BorderThickness}}"
-                    CornerRadius="6">
-              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
-                                 Margin="{{TemplateBinding Padding}}"/>
-            </Border>
-            <ControlTemplate.Triggers>
-              <Trigger Property="IsMouseOver" Value="True">
-                <Setter TargetName="bd" Property="Background" Value="{gold_dark}"/>
-                <Setter Property="Foreground" Value="#141414"/>
-              </Trigger>
-              <Trigger Property="IsPressed" Value="True">
-                <Setter TargetName="bd" Property="Background" Value="{gold}"/>
-              </Trigger>
-            </ControlTemplate.Triggers>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-    </Style>
-
-    <Style x:Key="PrimaryButton" TargetType="Button" BasedOn="{{StaticResource GoldButton}}">
-      <Setter Property="Background" Value="{gold_dark}"/>
-      <Setter Property="Foreground" Value="#141414"/>
-      <Setter Property="FontWeight" Value="Bold"/>
-    </Style>
-  </Window.Resources>
-
-  <Grid>
-    <Grid.RowDefinitions>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="Auto"/>
-      <RowDefinition Height="*"/>
-      <RowDefinition Height="Auto"/>
-    </Grid.RowDefinitions>
-
-    <!-- TOOLBAR -->
-    <Border Grid.Row="0" Background="{panel}" BorderBrush="{gold_dark}" BorderThickness="0,0,0,1">
-      <DockPanel Margin="12,10,12,10">
-        <TextBlock DockPanel.Dock="Left" Text="⬛ BẢNG DỮ LIỆU GENERIC ANNOTATION"
-                   Foreground="{gold}" FontSize="16" FontWeight="Bold" VerticalAlignment="Center"/>
-        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right">
-          <Button x:Name="BtnRecalc" Content="⟲ Tính lại" Style="{{StaticResource GoldButton}}"/>
-          <Button x:Name="BtnApply" Content="✔ Cập nhật vào Revit" Style="{{StaticResource PrimaryButton}}"/>
-          <Button x:Name="BtnCancel" Content="✖ Hủy" Style="{{StaticResource GoldButton}}"/>
-        </StackPanel>
-        <TextBlock x:Name="TxtGridInfo" Text="" Foreground="{text_dim}" FontSize="12"
-                    VerticalAlignment="Center" Margin="20,0,0,0"/>
-      </DockPanel>
-    </Border>
-
-    <!-- FORMULA BAR -->
-    <Border Grid.Row="1" Background="{panel2}" BorderBrush="{grid_line}" BorderThickness="0,0,0,1">
-      <Grid Margin="12,8,12,8">
-        <Grid.ColumnDefinitions>
-          <ColumnDefinition Width="Auto"/>
-          <ColumnDefinition Width="240"/>
-          <ColumnDefinition Width="Auto"/>
-          <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
-        <TextBlock Grid.Column="0" Text="Ô đích:" Foreground="{text_dim}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-        <TextBox x:Name="TxtDestCell" Grid.Column="1" Height="28" VerticalContentAlignment="Center"
-                 Background="{bg}" Foreground="{text}" BorderBrush="{gold_dark}" Padding="6,0"
-                 ToolTip="Nhập ô đích (vd: C5), rồi bấm 1 trong 3 nút bên phải để chèn công thức từ vùng đang bôi chọn trong bảng."/>
-        <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="10,0,0,0">
-          <Button x:Name="BtnInsertSum" Content="Σ SUM" Style="{{StaticResource GoldButton}}"/>
-          <Button x:Name="BtnInsertProduct" Content="× PRODUCT" Style="{{StaticResource GoldButton}}"/>
-          <Button x:Name="BtnInsertAverage" Content="⌀ AVERAGE" Style="{{StaticResource GoldButton}}"/>
-          <Button x:Name="BtnInsertDivide" Content="÷ A / B" Style="{{StaticResource GoldButton}}"/>
-        </StackPanel>
-        <TextBlock x:Name="TxtStats" Grid.Column="3" Text="Chọn ô trong bảng để xem SUM / AVERAGE / MIN / MAX / PRODUCT..."
-                   Foreground="{gold}" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Right"/>
-      </Grid>
-    </Border>
-
-    <!-- DATAGRID -->
-    <Border Grid.Row="2" Background="{bg}" Margin="12,10,12,6" BorderBrush="{grid_line}" BorderThickness="1">
-      <DataGrid x:Name="GridMain"
-                Background="{bg}" Foreground="{text}"
-                RowBackground="{bg}" AlternatingRowBackground="{row_alt}"
-                GridLinesVisibility="All" HorizontalGridLinesBrush="{grid_line}" VerticalGridLinesBrush="{grid_line}"
-                BorderThickness="0" AutoGenerateColumns="False"
-                CanUserAddRows="False" CanUserDeleteRows="False" CanUserSortColumns="False"
-                SelectionUnit="Cell" SelectionMode="Extended"
-                HeadersVisibility="Column" RowHeaderWidth="0"
-                FontSize="13" ClipboardCopyMode="ExcludeHeader">
-        <DataGrid.ColumnHeaderStyle>
-          <Style TargetType="DataGridColumnHeader">
-            <Setter Property="Background" Value="{panel2}"/>
-            <Setter Property="Foreground" Value="{gold}"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Padding" Value="6,6"/>
-            <Setter Property="BorderBrush" Value="{gold_dark}"/>
-            <Setter Property="BorderThickness" Value="0,0,1,2"/>
-          </Style>
-        </DataGrid.ColumnHeaderStyle>
-        <DataGrid.CellStyle>
-          <Style TargetType="DataGridCell">
-            <Setter Property="Padding" Value="6,4"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Style.Triggers>
-              <Trigger Property="IsSelected" Value="True">
-                <Setter Property="Background" Value="{gold_dark}"/>
-                <Setter Property="Foreground" Value="#141414"/>
-              </Trigger>
-            </Style.Triggers>
-          </Style>
-        </DataGrid.CellStyle>
-      </DataGrid>
-    </Border>
-
-    <!-- LOG / STATUS -->
-    <Border Grid.Row="3" Background="{panel}" BorderBrush="{gold_dark}" BorderThickness="0,1,0,0">
-      <Grid Margin="12,6,12,6">
-        <TextBlock x:Name="TxtStatus" Text="Sẵn sàng." Foreground="{text_dim}" FontSize="12" VerticalAlignment="Center"/>
-      </Grid>
-    </Border>
-  </Grid>
-</Window>
-"""
+def hexcolor(h):
+    h = h.lstrip("#")
+    return Color.FromArgb(int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16))
 
 
-def build_xaml():
-    xaml = XAML
-    for key, value in THEME.items():
-        xaml = xaml.replace("{%s}" % key, value)
-    return xaml
+FUNC_CHOICES = [u"SUM (Tổng)", u"PRODUCT (Tích)", u"AVERAGE (Trung bình)",
+                u"DIVIDE A / B (Chia, đúng 2 ô)"]
+FUNC_CODES = ["SUM", "PRODUCT", "AVERAGE", "DIVIDE"]
+
+if GUI_AVAILABLE:
+    C_BG = hexcolor(THEME["bg"])
+    C_PANEL = hexcolor(THEME["panel"])
+    C_PANEL2 = hexcolor(THEME["panel2"])
+    C_GOLD = hexcolor(THEME["gold"])
+    C_GOLD_DARK = hexcolor(THEME["gold_dark"])
+    C_TEXT = hexcolor(THEME["text"])
+    C_TEXT_DIM = hexcolor(THEME["text_dim"])
+    C_GRID_LINE = hexcolor(THEME["grid_line"])
+    C_ROW_ALT = hexcolor(THEME["row_alt"])
+    C_INK = Color.FromArgb(20, 20, 20)
+
+    UI_FONT_FALLBACKS = []
+
+    def safe_font(size=9.5, bold=False, family="Segoe UI"):
+        """Tạo Font .NET an toàn. Nếu family/size gặp lỗi (đã từng gặp
+        trên CPython3: System.ArgumentException 'Parameter is not valid')
+        thì lùi về font hệ thống thay vì làm crash cả cửa sổ."""
+        style = FontStyle.Bold if bold else FontStyle.Regular
+        try:
+            em = Single(float(size))
+        except Exception:
+            em = float(size)
+        try:
+            return Font(family, em, style, GraphicsUnit.Point)
+        except Exception as ex1:
+            UI_FONT_FALLBACKS.append("%s %.1f: %s" % (family, float(size), str(ex1)))
+            try:
+                return Font(SystemFonts.MessageBoxFont.FontFamily, em, style, GraphicsUnit.Point)
+            except Exception:
+                return SystemFonts.MessageBoxFont
+
+    def set_font(control, size=9.5, bold=False, family="Segoe UI"):
+        try:
+            control.Font = safe_font(size, bold, family)
+        except Exception:
+            pass
+        return control
+
+    def style_button(btn, primary=False):
+        btn.FlatStyle = FlatStyle.Flat
+        btn.FlatAppearance.BorderSize = 1
+        btn.FlatAppearance.BorderColor = C_GOLD_DARK
+        btn.BackColor = C_GOLD_DARK if primary else C_PANEL2
+        btn.ForeColor = C_INK if primary else C_GOLD
+        set_font(btn, 9.5, True)
+        return btn
+
+    def mk_form(title, width, height):
+        f = Form()
+        f.Text = title
+        f.Size = Size(width, height)
+        f.MinimumSize = Size(min(width, 900), min(height, 560))
+        f.StartPosition = FormStartPosition.CenterScreen
+        f.BackColor = C_BG
+        f.ForeColor = C_TEXT
+        f.FormBorderStyle = FormBorderStyle.Sizable
+        set_font(f, 9.5, False)
+        return f
+
+    def add_label(parent, text, x, y, w, h, color=None, bold=False, size=9.5):
+        l = Label()
+        l.Text = text
+        l.Location = Point(x, y)
+        l.Size = Size(w, h)
+        l.ForeColor = color or C_TEXT
+        l.BackColor = Color.Transparent
+        set_font(l, size, bold)
+        parent.Controls.Add(l)
+        return l
+
+    def add_textbox(parent, text, x, y, w, h=26):
+        tb = TextBox()
+        tb.Text = text
+        tb.Location = Point(x, y)
+        tb.Size = Size(w, h)
+        tb.BackColor = Color.White
+        tb.ForeColor = Color.Black
+        set_font(tb, 9.5, False)
+        parent.Controls.Add(tb)
+        return tb
+
+    def add_combo(parent, items, x, y, w, h, selected=0):
+        cb = ComboBox()
+        cb.Location = Point(x, y)
+        cb.Size = Size(w, h)
+        cb.DropDownStyle = ComboBoxStyle.DropDownList
+        cb.BackColor = Color.White
+        cb.ForeColor = Color.Black
+        set_font(cb, 9.5, False)
+        for it in items:
+            cb.Items.Add(it)
+        if cb.Items.Count > 0:
+            cb.SelectedIndex = max(0, min(int(selected), cb.Items.Count - 1))
+        parent.Controls.Add(cb)
+        return cb
+
+    def build_data_grid(x, y, w, h, n_cols, col_names):
+        grid = DataGridView()
+        grid.Location = Point(x, y)
+        grid.Size = Size(w, h)
+        grid.AllowUserToAddRows = False
+        grid.AllowUserToDeleteRows = False
+        grid.RowHeadersVisible = False
+        grid.SelectionMode = DataGridViewSelectionMode.CellSelect
+        grid.MultiSelect = True
+        grid.BackgroundColor = C_BG
+        grid.GridColor = C_GRID_LINE
+        grid.EnableHeadersVisualStyles = False
+        grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing
+        grid.ColumnHeadersHeight = 32
+        grid.RowTemplate.Height = 26
+        grid.AutoSizeColumnsMode = getattr(DataGridViewAutoSizeColumnsMode, "None")
+        grid.ColumnHeadersDefaultCellStyle.BackColor = C_PANEL2
+        grid.ColumnHeadersDefaultCellStyle.ForeColor = C_GOLD
+        grid.ColumnHeadersDefaultCellStyle.Font = safe_font(9.5, True)
+        grid.DefaultCellStyle.BackColor = C_BG
+        grid.DefaultCellStyle.ForeColor = C_TEXT
+        grid.DefaultCellStyle.SelectionBackColor = C_GOLD_DARK
+        grid.DefaultCellStyle.SelectionForeColor = C_INK
+        grid.AlternatingRowsDefaultCellStyle.BackColor = C_ROW_ALT
+        grid.AlternatingRowsDefaultCellStyle.ForeColor = C_TEXT
+        set_font(grid, 9.5, False)
+
+        idx_col = DataGridViewTextBoxColumn()
+        idx_col.HeaderText = "#"
+        idx_col.Width = 42
+        idx_col.ReadOnly = True
+        # KHÔNG cho click header để sort — nếu không, WinForms sẽ tự sắp
+        # xếp lại các hàng và làm lệch hoàn toàn ánh xạ hàng/cột <-> phần
+        # tử Revit (grid_elems) mà script đang theo dõi.
+        idx_col.SortMode = DataGridViewColumnSortMode.NotSortable
+        grid.Columns.Add(idx_col)
+
+        col_w = max(70, min(140, int((w - 70) / max(n_cols, 1))))
+        for name in col_names:
+            c = DataGridViewTextBoxColumn()
+            c.HeaderText = name
+            c.Width = col_w
+            c.SortMode = DataGridViewColumnSortMode.NotSortable
+            grid.Columns.Add(c)
+        return grid
 
 
-def load_window():
-    xaml = build_xaml()
-    reader = XmlReader.Create(StringReader(xaml))
-    window = XamlReader.Load(reader)
-    return window
+def run_gui_wizard(doc_, n_rows, n_cols, grid_elems, raw_formulas, param_name_by_elem, warnings):
+    """Vòng lặp GUI "eventless": mỗi lần bấm nút, cửa sổ đóng lại (nhờ
+    Button.DialogResult xử lý hoàn toàn trong .NET, không cần callback
+    Python), Python đọc lại dữ liệu trên lưới + DialogResult, xử lý, rồi
+    dựng lại 1 cửa sổ MỚI với dữ liệu đã cập nhật — lặp lại cho tới khi
+    người dùng bấm "Cập nhật vào Revit" hoặc "Hủy"."""
+    col_names = [col_letter(c) for c in range(n_cols)]
 
+    try:
+        Application.EnableVisualStyles()
+    except Exception:
+        pass  # đã gọi rồi ở lần chạy trước trong cùng phiên Revit -> bỏ qua
 
-def find_name(root, name):
-    return root.FindName(name)
+    def recompute():
+        engine = FormulaEngine(lambda r, c: raw_formulas.get((r, c), ""), n_rows, n_cols)
+        cache = {}
+        for r in range(n_rows):
+            for c in range(n_cols):
+                try:
+                    cache[(r, c)] = engine.value_of(r, c)
+                except FormulaError as fe:
+                    cache[(r, c)] = fe.code
+        return cache
+
+    cache = recompute()
+    status_msg = u"Sẵn sàng."
+    stats_msg = u"Bôi chọn 1 vùng ô rồi bấm \"Σ Xem nhanh\" để xem SUM / AVERAGE / MIN / MAX / PRODUCT."
+    dest_text = ""
+    func_selected = 0
+    result = {"status": "Cancelled", "updated": 0}
+    NONE_RESULT = getattr(DialogResult, "None")
+
+    while True:
+        last_displayed = {}
+        for r in range(n_rows):
+            for c in range(n_cols):
+                last_displayed[(r, c)] = format_value(cache.get((r, c)))
+
+        f = mk_form(u"BẢNG DỮ LIỆU GENERIC ANNOTATION — EXCEL LIVE", 1240, 780)
+        cw = f.ClientSize.Width
+        ch = f.ClientSize.Height
+
+        header = Panel()
+        header.Dock = DockStyle.Top
+        header.Height = 54
+        header.BackColor = C_PANEL
+        f.Controls.Add(header)
+        add_label(header, u"⬛ BẢNG DỮ LIỆU GENERIC ANNOTATION", 16, 6, 560, 26, C_GOLD, True, 14.0)
+        add_label(header, u"%d hàng × %d cột — %d ô" % (n_rows, n_cols, n_rows * n_cols),
+                  16, 31, 500, 20, C_TEXT_DIM, False, 9.0)
+
+        add_label(f, u"Ô đích:", 12, 66, 55, 22, C_TEXT_DIM, False, 9.0)
+        txt_dest = add_textbox(f, dest_text, 68, 62, 90, 26)
+        add_label(f, u"Hàm:", 168, 66, 40, 22, C_TEXT_DIM, False, 9.0)
+        cmb_func = add_combo(f, FUNC_CHOICES, 212, 62, 250, 26, func_selected)
+        btn_insert = Button()
+        btn_insert.Text = u"➕ Chèn công thức"
+        btn_insert.Size = Size(160, 28)
+        btn_insert.Location = Point(472, 61)
+        btn_insert.DialogResult = DialogResult.Yes
+        style_button(btn_insert)
+        f.Controls.Add(btn_insert)
+        btn_quick = Button()
+        btn_quick.Text = u"Σ Xem nhanh vùng chọn"
+        btn_quick.Size = Size(190, 28)
+        btn_quick.Location = Point(642, 61)
+        btn_quick.DialogResult = DialogResult.Ignore
+        style_button(btn_quick)
+        f.Controls.Add(btn_quick)
+
+        grid_top = 100
+        grid_h = max(150, ch - grid_top - 132)
+        grid = build_data_grid(12, grid_top, cw - 24, grid_h, n_cols, col_names)
+        for r in range(n_rows):
+            ridx = grid.Rows.Add()
+            row = grid.Rows[ridx]
+            row.Cells[0].Value = str(r + 1)
+            for c in range(n_cols):
+                row.Cells[c + 1].Value = last_displayed[(r, c)]
+        f.Controls.Add(grid)
+
+        stats_y = grid_top + grid_h + 8
+        add_label(f, stats_msg, 12, stats_y, cw - 24, 20, C_GOLD, True, 9.0)
+        add_label(f, status_msg, 12, stats_y + 22, cw - 24, 20, C_TEXT_DIM, False, 9.0)
+
+        by = ch - 46
+        btn_cancel = Button()
+        btn_cancel.Text = u"✖ Hủy"
+        btn_cancel.Size = Size(110, 32)
+        btn_cancel.Location = Point(cw - 12 - 110, by)
+        btn_cancel.DialogResult = DialogResult.Cancel
+        style_button(btn_cancel)
+        f.Controls.Add(btn_cancel)
+        f.CancelButton = btn_cancel
+
+        btn_apply = Button()
+        btn_apply.Text = u"✔ Cập nhật vào Revit"
+        btn_apply.Size = Size(210, 34)
+        btn_apply.Location = Point(btn_cancel.Location.X - 12 - 210, by - 1)
+        btn_apply.DialogResult = DialogResult.OK
+        style_button(btn_apply, True)
+        f.Controls.Add(btn_apply)
+        f.AcceptButton = btn_apply
+
+        btn_recalc = Button()
+        btn_recalc.Text = u"⟲ Tính lại"
+        btn_recalc.Size = Size(120, 32)
+        btn_recalc.Location = Point(btn_apply.Location.X - 12 - 120, by)
+        btn_recalc.DialogResult = DialogResult.Retry
+        style_button(btn_recalc)
+        f.Controls.Add(btn_recalc)
+
+        dr = f.ShowDialog()
+
+        # ----- Đọc lại toàn bộ trạng thái control NGAY sau ShowDialog -----
+        dest_text = txt_dest.Text.strip()
+        func_selected = cmb_func.SelectedIndex if cmb_func.SelectedIndex >= 0 else 0
+
+        changed_any = False
+        for r in range(n_rows):
+            row = grid.Rows[r]
+            for c in range(n_cols):
+                cell_val = row.Cells[c + 1].Value
+                new_text = u"" if cell_val is None else str(cell_val)
+                if new_text != last_displayed.get((r, c), u""):
+                    raw_formulas[(r, c)] = new_text
+                    changed_any = True
+        if changed_any:
+            cache = recompute()
+
+        if dr == DialogResult.Ignore:
+            sel = grid.SelectedCells
+            nums = []
+            count_sel = 0
+            for cell in sel:
+                if cell.ColumnIndex == 0:
+                    continue
+                count_sel += 1
+                v = cache.get((cell.RowIndex, cell.ColumnIndex - 1))
+                if isinstance(v, (int, float)):
+                    nums.append(float(v))
+            if not nums:
+                stats_msg = u"Đã chọn %d ô — không có số để tính." % count_sel
+            else:
+                s = sum(nums)
+                avg = s / len(nums)
+                mn = min(nums)
+                mx = max(nums)
+                prod = 1.0
+                for n in nums:
+                    prod *= n
+                stats_msg = (u"Đã chọn %d ô | SUM=%s | AVG=%s | MIN=%s | MAX=%s | PRODUCT=%s"
+                             % (count_sel, format_value(s), format_value(avg),
+                                format_value(mn), format_value(mx), format_value(prod)))
+            status_msg = u"Sẵn sàng."
+            continue
+
+        if dr == DialogResult.Retry:
+            status_msg = u"Đã tính lại toàn bộ công thức."
+            continue
+
+        if dr == DialogResult.Yes:
+            sel = grid.SelectedCells
+            cells = sorted(set(
+                (cell.RowIndex, cell.ColumnIndex - 1) for cell in sel if cell.ColumnIndex != 0
+            ))
+            func_code = FUNC_CODES[func_selected] if 0 <= func_selected < len(FUNC_CODES) else "SUM"
+            dest_ref = parse_cell_ref(dest_text.upper())
+            if not cells:
+                status_msg = u"⚠ Hãy bôi chọn 1 vùng ô trong bảng trước."
+            elif dest_ref is None:
+                status_msg = u"⚠ Ô đích không hợp lệ. Nhập dạng ví dụ: C5"
+            elif not (0 <= dest_ref[0] < n_rows and 0 <= dest_ref[1] < n_cols):
+                status_msg = u"⚠ Ô đích ngoài phạm vi bảng (%d hàng × %d cột)." % (n_rows, n_cols)
+            elif func_code == "DIVIDE":
+                if len(cells) != 2:
+                    status_msg = u"⚠ Phép chia cần bôi chọn đúng 2 ô (đang chọn %d ô)." % len(cells)
+                else:
+                    (ra, ca), (rb, cb) = cells
+                    r0, c0 = dest_ref
+                    formula = "=%s%d/%s%d" % (col_letter(ca), ra + 1, col_letter(cb), rb + 1)
+                    raw_formulas[(r0, c0)] = formula
+                    cache = recompute()
+                    status_msg = u"Đã chèn %s vào ô %s%d." % (formula, col_letter(c0), r0 + 1)
+            else:
+                rmin = min(c[0] for c in cells)
+                rmax = max(c[0] for c in cells)
+                cmin = min(c[1] for c in cells)
+                cmax = max(c[1] for c in cells)
+                r0, c0 = dest_ref
+                range_str = "%s%d:%s%d" % (col_letter(cmin), rmin + 1, col_letter(cmax), rmax + 1)
+                formula = "=%s(%s)" % (func_code, range_str)
+                raw_formulas[(r0, c0)] = formula
+                cache = recompute()
+                status_msg = u"Đã chèn %s vào ô %s%d." % (formula, col_letter(c0), r0 + 1)
+            continue
+
+        if dr == DialogResult.Cancel or dr == NONE_RESULT:
+            result["status"] = "Cancelled"
+            break
+
+        if dr == DialogResult.OK:
+            cache = recompute()
+            n_writable = sum(1 for r in range(n_rows) for c in range(n_cols) if grid_elems[r][c] is not None)
+            confirm = MessageBox.Show(
+                u"Sẽ ghi kết quả vào tối đa %d ô Generic Annotation trên view.\nBạn có chắc muốn cập nhật vào Revit?"
+                % n_writable,
+                u"Xác nhận cập nhật", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+            if confirm != DialogResult.Yes:
+                status_msg = u"Đã huỷ thao tác cập nhật."
+                continue
+            try:
+                updated = write_back(doc_, grid_elems, raw_formulas, cache, param_name_by_elem, warnings)
+                result["status"] = "Updated"
+                result["updated"] = updated
+                MessageBox.Show(u"Đã cập nhật %d ô vào Revit." % updated, u"Hoàn tất",
+                                 MessageBoxButtons.OK, MessageBoxIcon.Information)
+            except Exception as ex:
+                warnings.append(str(ex))
+                warnings.append(traceback.format_exc())
+                MessageBox.Show(u"Lỗi khi cập nhật vào Revit:\n%s" % str(ex), u"Lỗi",
+                                 MessageBoxButtons.OK, MessageBoxIcon.Error)
+                status_msg = u"✖ Lỗi khi cập nhật — xem chi tiết trong Warnings."
+                continue
+            break
+
+        result["status"] = "Cancelled"
+        break
+
+    return result, cache
 
 
 # ------------------------------------------------------------------------
 # 6. GHI DỮ LIỆU NGƯỢC VÀO REVIT (WRITE-BACK, 1 TRANSACTION)
 # ------------------------------------------------------------------------
-def write_back(grid_elems, raw_formulas, engine_cache, param_name_by_elem, warnings):
-    """Ghi các ô có thay đổi vào Revit trong đúng 1 transaction."""
-    updates = []  # (elem, param_name, new_text, old_text)
+def write_back(doc_, grid_elems, raw_formulas, engine_cache, param_name_by_elem, warnings):
+    """Ghi các ô có thay đổi vào Revit trong đúng 1 Transaction (mỗi ô
+    nằm trong 1 SubTransaction riêng, để 1 ô lỗi không huỷ các ô khác đã
+    ghi thành công) — cùng kiểu Transaction/SubTransaction .NET thường,
+    KHÔNG dùng TransactionManager.Instance.EnsureInTransaction, vì luồng
+    chính đang bị chặn bởi Form.ShowDialog() (modal) trong lúc GUI mở,
+    và Transaction .NET thường cho toàn quyền kiểm soát start/commit/
+    rollback một cách tường minh, dễ dự đoán hơn."""
+    updates = []  # (elem, param, pname, new_text)
     n_rows = len(grid_elems)
     n_cols = len(grid_elems[0]) if n_rows else 0
     for r in range(n_rows):
@@ -875,8 +1121,7 @@ def write_back(grid_elems, raw_formulas, engine_cache, param_name_by_elem, warni
             elem = grid_elems[r][c]
             if elem is None:
                 continue
-            new_val = engine_cache.get((r, c))
-            new_text = format_value(new_val)
+            new_text = format_value(engine_cache.get((r, c)))
             param, pname = find_text_parameter(elem, param_name_by_elem.get(elem.Id.IntegerValue))
             if param is None:
                 warnings.append(u"Không tìm thấy parameter chữ trên phần tử Id=%s (hàng %d, cột %s)"
@@ -884,44 +1129,63 @@ def write_back(grid_elems, raw_formulas, engine_cache, param_name_by_elem, warni
                 continue
             old_text = read_cell_text(param)
             if old_text != new_text:
-                updates.append((elem, param, pname, new_text, old_text))
+                updates.append((elem, param, pname, new_text))
 
     if not updates:
         return 0
 
-    if DYNAMO_ENV:
-        TransactionManager.Instance.EnsureInTransaction(doc)
-    else:
-        t = Transaction(doc, u"Cập nhật bảng Generic Annotation")
-        t.Start()
+    # Đóng transaction "lơ lửng" của Dynamo (nếu có) trước khi tự mở 1
+    # Transaction thường — tránh xung đột giữa 2 cơ chế quản lý transaction.
+    if DYNAMO_ENV and TransactionManager is not None:
+        try:
+            TransactionManager.Instance.ForceCloseTransaction()
+        except Exception:
+            pass
 
     updated = 0
-    for elem, param, pname, new_text, old_text in updates:
-        try:
-            if param.IsReadOnly:
-                warnings.append(u"Parameter '%s' chỉ đọc trên Id=%s — bỏ qua." % (pname, elem.Id))
-                continue
-            if param.StorageType == Autodesk.Revit.DB.StorageType.String:
-                param.Set(new_text)
-            else:
-                # cố gắng ép kiểu nếu parameter là số (Double/Integer)
-                try:
-                    if param.StorageType == Autodesk.Revit.DB.StorageType.Double:
-                        param.Set(float(new_text))
-                    elif param.StorageType == Autodesk.Revit.DB.StorageType.Integer:
-                        param.Set(int(round(float(new_text))))
-                    else:
-                        param.Set(new_text)
-                except Exception:
+    t = Transaction(doc_, u"Cập nhật bảng Generic Annotation")
+    t.Start()
+    try:
+        for elem, param, pname, new_text in updates:
+            st = SubTransaction(doc_)
+            st.Start()
+            try:
+                if param.IsReadOnly:
+                    warnings.append(u"Parameter '%s' chỉ đọc trên Id=%s — bỏ qua." % (pname, elem.Id))
+                    st.RollBack()
+                    continue
+                if param.StorageType == Autodesk.Revit.DB.StorageType.String:
                     param.Set(new_text)
-            updated += 1
-        except Exception as ex:
-            warnings.append(u"Lỗi ghi Id=%s: %s" % (elem.Id, str(ex)))
-
-    if DYNAMO_ENV:
-        TransactionManager.Instance.TransactionTaskDone()
-    else:
+                else:
+                    # cố gắng ép kiểu nếu parameter là số (Double/Integer)
+                    try:
+                        if param.StorageType == Autodesk.Revit.DB.StorageType.Double:
+                            param.Set(float(new_text))
+                        elif param.StorageType == Autodesk.Revit.DB.StorageType.Integer:
+                            param.Set(int(round(float(new_text))))
+                        else:
+                            param.Set(new_text)
+                    except Exception:
+                        param.Set(new_text)
+                st.Commit()
+                updated += 1
+            except Exception as ex:
+                try:
+                    st.RollBack()
+                except Exception:
+                    pass
+                warnings.append(u"Lỗi ghi Id=%s: %s" % (elem.Id, str(ex)))
+        try:
+            doc_.Regenerate()
+        except Exception:
+            pass
         t.Commit()
+    except Exception:
+        try:
+            t.RollBack()
+        except Exception:
+            pass
+        raise
 
     return updated
 
@@ -976,7 +1240,7 @@ def run(elements, schedule, forced_param_name, show_gui, row_tol, col_tol):
         for r in range(n_rows):
             for c in range(n_cols):
                 cache[(r, c)] = engine.value_of(r, c)
-        updated = write_back(grid_elems, raw_formulas, cache, param_name_by_elem, warnings)
+        updated = write_back(doc, grid_elems, raw_formulas, cache, param_name_by_elem, warnings)
         out_grid = [[format_value(cache.get((r, c))) for c in range(n_cols)] for r in range(n_rows)]
         return {
             "Status": "Updated", "UpdatedCount": updated, "TotalCells": n_rows * n_cols,
@@ -985,262 +1249,20 @@ def run(elements, schedule, forced_param_name, show_gui, row_tol, col_tol):
         }
 
     # ---------------- GUI MODE ----------------
-    result_holder = {"status": "Cancelled", "updated": 0}
+    if not GUI_AVAILABLE:
+        return {
+            "Status": "Error", "UpdatedCount": 0, "TotalCells": n_rows * n_cols,
+            "Rows": n_rows, "Cols": n_cols, "Grid": [],
+            "Warnings": warnings + [u"Không nạp được WinForms GUI: %s" % GUI_IMPORT_ERROR],
+            "ElapsedMs": int((time.time() - t0) * 1000),
+        }
 
-    window = load_window()
-    grid_ui = find_name(window, "GridMain")
-    txt_status = find_name(window, "TxtStatus")
-    txt_stats = find_name(window, "TxtStats")
-    txt_grid_info = find_name(window, "TxtGridInfo")
-    txt_dest = find_name(window, "TxtDestCell")
-    btn_recalc = find_name(window, "BtnRecalc")
-    btn_apply = find_name(window, "BtnApply")
-    btn_cancel = find_name(window, "BtnCancel")
-    btn_sum = find_name(window, "BtnInsertSum")
-    btn_product = find_name(window, "BtnInsertProduct")
-    btn_average = find_name(window, "BtnInsertAverage")
-    btn_divide = find_name(window, "BtnInsertDivide")
+    gui_result, cache = run_gui_wizard(doc, n_rows, n_cols, grid_elems, raw_formulas, param_name_by_elem, warnings)
 
-    txt_grid_info.Text = u"%d hàng × %d cột — %d ô" % (n_rows, n_cols, n_rows * n_cols)
-
-    # ----- Dựng DataTable (nguồn hiển thị) -----
-    dt = DataTable()
-    idx_col = DataColumn("#", System.Int32)
-    dt.Columns.Add(idx_col)
-    col_names = [col_letter(c) for c in range(n_cols)]
-    for name in col_names:
-        dt.Columns.Add(DataColumn(name, String))
-
-    for r in range(n_rows):
-        row = dt.NewRow()
-        row["#"] = r + 1
-        for c in range(n_cols):
-            row[col_names[c]] = ""
-        dt.Rows.Add(row)
-
-    grid_ui.ItemsSource = dt.DefaultView
-
-    # cột "#" (không cho sửa)
-    idx_dgc = DataGridTextColumn()
-    idx_dgc.Header = "#"
-    idx_dgc.Binding = Binding("[#]")
-    idx_dgc.IsReadOnly = True
-    idx_dgc.Width = 42
-    grid_ui.Columns.Add(idx_dgc)
-
-    for name in col_names:
-        dgc = DataGridTextColumn()
-        dgc.Header = name
-        dgc.Binding = Binding("[%s]" % name)
-        dgc.Width = 110
-        dgc.SortMemberPath = name
-        grid_ui.Columns.Add(dgc)
-
-    last_cache = {}
-
-    def get_raw(r, c):
-        return raw_formulas.get((r, c), "")
-
-    def recalc_all(*_args):
-        engine = FormulaEngine(get_raw, n_rows, n_cols)
-        cache = {}
-        for rr in range(n_rows):
-            for cc in range(n_cols):
-                try:
-                    cache[(rr, cc)] = engine.value_of(rr, cc)
-                except FormulaError as fe:
-                    cache[(rr, cc)] = fe.code
-        last_cache.clear()
-        last_cache.update(cache)
-        for rr in range(n_rows):
-            row = dt.Rows[rr]
-            for cc in range(n_cols):
-                new_disp = format_value(cache.get((rr, cc)))
-                if str(row[col_names[cc]]) != new_disp:
-                    row[col_names[cc]] = new_disp
-        update_stats()
-
-    def update_stats(*_args):
-        try:
-            sel_cells = grid_ui.SelectedCells
-            nums = []
-            count_sel = 0
-            for sc in sel_cells:
-                col_name = sc.Column.SortMemberPath
-                if not col_name:
-                    continue
-                row_view = sc.Item
-                try:
-                    r = dt.Rows.IndexOf(row_view.Row)
-                except Exception:
-                    continue
-                c = col_index(col_name)
-                count_sel += 1
-                v = last_cache.get((r, c))
-                if isinstance(v, (int, float)):
-                    nums.append(float(v))
-            if not nums:
-                txt_stats.Text = u"Đã chọn: %d ô — (không có số để tính)" % count_sel
-                return
-            s = sum(nums)
-            avg = s / len(nums)
-            mn = min(nums)
-            mx = max(nums)
-            prod = 1.0
-            for n in nums:
-                prod *= n
-            txt_stats.Text = (u"Đã chọn: %d ô | SUM=%s | AVG=%s | MIN=%s | MAX=%s | PRODUCT=%s"
-                               % (count_sel, format_value(s), format_value(avg),
-                                  format_value(mn), format_value(mx), format_value(prod)))
-        except Exception:
-            pass
-
-    def current_selection_range():
-        sel_cells = grid_ui.SelectedCells
-        rows_cols = []
-        for sc in sel_cells:
-            col_name = sc.Column.SortMemberPath
-            if not col_name:
-                continue
-            row_view = sc.Item
-            try:
-                r = dt.Rows.IndexOf(row_view.Row)
-            except Exception:
-                continue
-            c = col_index(col_name)
-            rows_cols.append((r, c))
-        if not rows_cols:
-            return None
-        rmin = min(x[0] for x in rows_cols)
-        rmax = max(x[0] for x in rows_cols)
-        cmin = min(x[1] for x in rows_cols)
-        cmax = max(x[1] for x in rows_cols)
-        return (rmin, cmin, rmax, cmax), sorted(rows_cols)
-
-    def dest_cell_index():
-        text = txt_dest.Text.strip().upper()
-        ref = parse_cell_ref(text)
-        if ref is None:
-            txt_status.Text = u"⚠ Ô đích không hợp lệ. Nhập dạng ví dụ: C5"
-            return None
-        r, c = ref
-        if r < 0 or r >= n_rows or c < 0 or c >= n_cols:
-            txt_status.Text = u"⚠ Ô đích ngoài phạm vi bảng (%d hàng × %d cột)." % (n_rows, n_cols)
-            return None
-        return r, c
-
-    def insert_formula(func_name):
-        rng = current_selection_range()
-        if rng is None:
-            txt_status.Text = u"⚠ Hãy bôi chọn 1 vùng ô trong bảng trước."
-            return
-        (rmin, cmin, rmax, cmax), _cells = rng
-        dest = dest_cell_index()
-        if dest is None:
-            return
-        r0, c0 = dest
-        range_str = "%s%d:%s%d" % (col_letter(cmin), rmin + 1, col_letter(cmax), rmax + 1)
-        formula = "=%s(%s)" % (func_name, range_str)
-        raw_formulas[(r0, c0)] = formula
-        txt_status.Text = u"Đã chèn %s vào ô %s%d." % (formula, col_letter(c0), r0 + 1)
-        recalc_all()
-
-    def insert_divide(*_args):
-        rng = current_selection_range()
-        if rng is None:
-            txt_status.Text = u"⚠ Hãy bôi chọn đúng 2 ô (A và B) trước."
-            return
-        _bbox, cells = rng
-        if len(cells) != 2:
-            txt_status.Text = u"⚠ Phép chia cần bôi chọn đúng 2 ô (đang chọn %d ô)." % len(cells)
-            return
-        dest = dest_cell_index()
-        if dest is None:
-            return
-        r0, c0 = dest
-        (ra, ca), (rb, cb) = cells
-        formula = "=%s%d/%s%d" % (col_letter(ca), ra + 1, col_letter(cb), rb + 1)
-        raw_formulas[(r0, c0)] = formula
-        txt_status.Text = u"Đã chèn %s vào ô %s%d." % (formula, col_letter(c0), r0 + 1)
-        recalc_all()
-
-    def on_beginning_edit(sender, e):
-        try:
-            col_name = e.Column.SortMemberPath
-            if not col_name:
-                return
-            row_view = e.Row.Item
-            data_row = row_view.Row
-            r = dt.Rows.IndexOf(data_row)
-            c = col_index(col_name)
-            raw = raw_formulas.get((r, c), "")
-            data_row[col_name] = raw
-        except Exception as ex:
-            txt_status.Text = u"Lỗi BeginningEdit: %s" % str(ex)
-
-    def on_cell_edit_ending(sender, e):
-        try:
-            if str(e.EditAction) != "Commit":
-                return
-            col_name = e.Column.SortMemberPath
-            if not col_name:
-                return
-            row_view = e.Row.Item
-            data_row = row_view.Row
-            r = dt.Rows.IndexOf(data_row)
-            c = col_index(col_name)
-            editing_element = e.EditingElement
-            new_text = editing_element.Text if hasattr(editing_element, "Text") else ""
-            raw_formulas[(r, c)] = new_text
-
-            def deferred():
-                recalc_all()
-            window.Dispatcher.BeginInvoke(DispatcherPriority.Background, Action(deferred))
-        except Exception as ex:
-            txt_status.Text = u"Lỗi CellEditEnding: %s" % str(ex)
-
-    def on_apply(sender, e):
-        try:
-            recalc_all()
-            n_changed = 0
-            for r in range(n_rows):
-                for c in range(n_cols):
-                    if grid_elems[r][c] is not None:
-                        n_changed += 1
-            txt_status.Text = u"Đang ghi vào Revit..."
-            updated = write_back(grid_elems, raw_formulas, last_cache, param_name_by_elem, warnings)
-            result_holder["status"] = "Updated"
-            result_holder["updated"] = updated
-            txt_status.Text = u"✔ Đã cập nhật %d ô vào Revit." % updated
-            window.DialogResult = True
-            window.Close()
-        except Exception as ex:
-            txt_status.Text = u"✖ Lỗi khi cập nhật: %s" % str(ex)
-            warnings.append(traceback.format_exc())
-
-    def on_cancel(sender, e):
-        result_holder["status"] = "Cancelled"
-        window.DialogResult = False
-        window.Close()
-
-    grid_ui.add_BeginningEdit(on_beginning_edit)
-    grid_ui.add_CellEditEnding(on_cell_edit_ending)
-    grid_ui.add_SelectedCellsChanged(update_stats)
-    btn_recalc.add_Click(recalc_all)
-    btn_apply.add_Click(on_apply)
-    btn_cancel.add_Click(on_cancel)
-    btn_sum.add_Click(lambda s, e: insert_formula("SUM"))
-    btn_product.add_Click(lambda s, e: insert_formula("PRODUCT"))
-    btn_average.add_Click(lambda s, e: insert_formula("AVERAGE"))
-    btn_divide.add_Click(insert_divide)
-
-    recalc_all()
-    window.ShowDialog()
-
-    out_grid = [[format_value(last_cache.get((r, c))) for c in range(n_cols)] for r in range(n_rows)]
+    out_grid = [[format_value(cache.get((r, c))) for c in range(n_cols)] for r in range(n_rows)]
     return {
-        "Status": result_holder["status"],
-        "UpdatedCount": result_holder["updated"],
+        "Status": gui_result["status"],
+        "UpdatedCount": gui_result["updated"],
         "TotalCells": n_rows * n_cols,
         "Rows": n_rows, "Cols": n_cols,
         "Grid": out_grid, "Warnings": warnings,

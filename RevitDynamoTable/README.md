@@ -9,11 +9,12 @@ Công cụ Dynamo (Python Script node) giúp:
 2. Đọc dữ liệu chữ đã điền sẵn trên từng ô (đã điền từ Schedule/Text) và
    (tuỳ chọn) đối chiếu thêm với một `ViewSchedule` để tự điền các ô còn
    trống.
-3. Mở **GUI dạng bảng tính** (theme tối, viền vàng đồng — "sang trọng hiện
-   đại"): xem/sửa từng ô, bôi chọn 1 vùng để xem ngay SUM / AVERAGE / MIN /
-   MAX / PRODUCT (thanh trạng thái kiểu Excel), chèn công thức
-   `=SUM(...)`, `=PRODUCT(...)`, `=AVERAGE(...)`, `=A/B` vào bất kỳ ô nào;
-   công thức tự tính lại mỗi khi ô nguồn thay đổi.
+3. Mở **GUI dạng bảng tính** (WinForms, theme tối, viền vàng đồng — "sang
+   trọng hiện đại"): xem/sửa từng ô, bôi chọn 1 vùng rồi bấm **"Σ Xem
+   nhanh"** để xem ngay SUM / AVERAGE / MIN / MAX / PRODUCT của vùng đó,
+   chọn hàm trong ô "Hàm" rồi bấm **"➕ Chèn công thức"** để chèn
+   `=SUM(...)`, `=PRODUCT(...)`, `=AVERAGE(...)` hoặc `=A/B` vào ô đích,
+   bấm **"⟲ Tính lại"** để tính lại toàn bộ công thức trong bảng.
 4. Khi bấm **"✔ Cập nhật vào Revit"**: ghi toàn bộ ô đã thay đổi trở lại
    đúng Generic Annotation tương ứng, **trong đúng 1 Transaction** (không
    mở/đóng transaction theo từng ô) để cập nhật cực nhanh trên view.
@@ -68,24 +69,30 @@ bản/duplicate làm `IN[0]`.
 
 ## 2. Cách dùng GUI
 
-1. **Thanh công cụ trên cùng**: hiển thị số hàng × cột đã dò được; nút
-   **"⟲ Tính lại"** (ép tính lại toàn bộ công thức), **"✔ Cập nhật vào
-   Revit"** (ghi kết quả), **"✖ Hủy"** (đóng, không ghi gì).
-2. **Thanh công thức**: gõ **ô đích** (vd `C5`) vào ô "Ô đích:", bôi chọn
-   1 vùng dữ liệu trong bảng (kéo chuột hoặc Ctrl-click nhiều ô), rồi bấm:
-   - **Σ SUM** — chèn `=SUM(vùng đã chọn)` vào ô đích.
-   - **× PRODUCT** — chèn `=PRODUCT(vùng đã chọn)`.
-   - **⌀ AVERAGE** — chèn `=AVERAGE(vùng đã chọn)`.
-   - **÷ A / B** — cần bôi chọn **đúng 2 ô**, chèn `=A/B` (ô có hàng/cột
-     nhỏ hơn được coi là A).
-3. **Thanh trạng thái bên phải thanh công thức**: giống thanh trạng thái
-   Excel — bôi chọn vùng bất kỳ để xem ngay SUM / AVERAGE / MIN / MAX /
-   PRODUCT của vùng đó, không cần chèn công thức.
-4. Có thể gõ công thức trực tiếp vào bất kỳ ô nào, bắt đầu bằng `=`, ví dụ
-   `=B2+B3`, `=SUM(B2:B10)/2`, `=ROUND(C4*1.15,2)`. Công thức tự tính lại
-   ngay khi bạn rời khỏi ô vừa sửa, và tự lan truyền qua các ô phụ thuộc.
-5. Bấm **"✔ Cập nhật vào Revit"** để ghi toàn bộ ô đã đổi khác giá trị gốc
-   trở lại đúng Generic Annotation tương ứng trên view.
+Cửa sổ là 1 "wizard" — mỗi lần bạn bấm 1 nút, cửa sổ đóng lại và **tự mở
+lại ngay lập tức** với dữ liệu mới nhất (đây là chủ đích thiết kế, xem lý
+do kỹ thuật ở mục 6). Vì vậy công thức KHÔNG tự tính lại tức thời từng
+phím gõ như Excel thật, mà tính lại mỗi khi bạn bấm 1 nút bất kỳ — vẫn
+rất nhanh vì bảng chỉ có vài chục/vài trăm ô.
+
+1. **Sửa trực tiếp trên lưới**: gõ đè giá trị vào bất kỳ ô nào (số, chữ,
+   hoặc công thức bắt đầu bằng `=`, ví dụ `=B2+B3`, `=SUM(B2:B10)/2`).
+   Giá trị được ghi nhận ngay khi bạn bấm bất kỳ nút nào bên dưới.
+2. **"Σ Xem nhanh vùng chọn"**: bôi chọn 1 vùng ô (kéo chuột hoặc
+   Ctrl-click), bấm nút này để xem ngay SUM / AVERAGE / MIN / MAX /
+   PRODUCT của vùng đó ở dòng chữ vàng bên dưới bảng — giống thanh trạng
+   thái Excel, không thay đổi gì trong bảng.
+3. **"➕ Chèn công thức"**: gõ **ô đích** (vd `C5`) vào ô "Ô đích:", chọn
+   hàm trong ô "Hàm" (SUM / PRODUCT / AVERAGE / DIVIDE A÷B), bôi chọn 1
+   vùng dữ liệu trong bảng, rồi bấm nút này — script tự chèn công thức
+   (vd `=SUM(B2:B10)`) vào đúng ô đích. Với DIVIDE cần bôi chọn **đúng 2
+   ô** (ô có hàng/cột nhỏ hơn được coi là A, ô kia là B).
+4. **"⟲ Tính lại"**: tính lại toàn bộ công thức trong bảng (hữu ích sau
+   khi sửa nhiều ô liền — dù thật ra công thức đã tự tính lại sau mỗi lần
+   bấm nút rồi).
+5. **"✔ Cập nhật vào Revit"**: hỏi xác nhận, rồi ghi toàn bộ ô đã đổi khác
+   giá trị gốc trở lại đúng Generic Annotation tương ứng trên view.
+6. **"✖ Hủy"**: đóng cửa sổ, không ghi gì vào Revit.
 
 ### Hàm công thức hỗ trợ
 
@@ -114,10 +121,10 @@ Mã lỗi hiển thị giống Excel: `#DIV/0!`, `#REF!`, `#VALUE!`, `#NAME?`,
   recursive-descent parser), KHÔNG dùng `eval()` — an toàn, không thể chạy
   mã tuỳ ý từ ô dữ liệu.
 - **Ghi ngược vào Revit**: gom toàn bộ thay đổi rồi ghi trong **đúng 1
-  Transaction** (`TransactionManager.Instance` khi chạy trong Dynamo, hoặc
-  `Transaction` thường khi chạy ngoài Dynamo) — đây là yếu tố quan trọng
-  nhất giúp tốc độ cập nhật nhanh, vì Revit không phải mở/đóng transaction
-  hàng trăm lần.
+  `Transaction`** (mỗi ô nằm trong 1 `SubTransaction` riêng để 1 ô lỗi
+  không huỷ các ô khác) — đây là yếu tố quan trọng nhất giúp tốc độ cập
+  nhật nhanh, vì Revit không phải mở/đóng transaction hàng trăm lần.
+- **GUI**: WinForms "eventless" — xem lý do và cách hoạt động ở mục 6.
 
 ## 4. OUT (kết quả trả về Dynamo)
 
@@ -180,6 +187,46 @@ khác, khả năng cao cũng do cùng nguyên nhân (toán tử `+ - * /` áp d�
 trực tiếp lên 1 kiểu dữ liệu RevitAPI/.NET) — cách sửa luôn là đổi sang
 gọi phương thức `.NET` tương ứng (`Add`, `Subtract`, `Multiply`,
 `DotProduct`, `Negate`...) thay vì dùng toán tử Python.
+
+**Lỗi `System.Xaml.XamlParseException: Unexpected token 'Open' in rule:
+'Mark...'` (không hiện GUI, dù đã dò được lưới bảng):** bản đầu tiên của
+GUI dùng WPF + chuỗi XAML. Chuỗi XAML đó vô tình chứa dấu ngoặc nhọn kép
+`{{StaticResource ...}}`/`{{TemplateBinding ...}}` (nhầm với cú pháp
+escape của Python `.format()`), trong khi cú pháp Markup Extension đúng
+của WPF chỉ dùng 1 cặp ngoặc `{...}` — khiến trình phân tích XAML báo lỗi
+ngay khi vừa mở cửa sổ.
+
+**Đã đổi hẳn kiến trúc GUI từ WPF sang WinForms "eventless"** — không chỉ
+sửa lỗi ngoặc kép, mà loại bỏ triệt để rủi ro thuộc lớp này: trên
+**Dynamo 2.19 / Revit 2024 với engine CPython3 (PythonNet 2.5.x)**, việc
+Python đăng ký sự kiện .NET (`control.add_Click(handler)`) hoặc kế thừa 1
+control .NET (`class MyForm(Form)`) có thể ném lỗi
+`"Constructor on type 'System.Reflection.Emit.TypeBuilder' not found"`
+vì PythonNet cần phát assembly động (TypeBuilder) để nối callback Python
+vào delegate .NET, và việc này bị chặn trong tiến trình Revit/Dynamo.
+Bản GUI hiện tại (từ `ScanGenericAnnotationTable.py` v3 trở đi):
+- Dùng **WinForms** (`System.Windows.Forms`/`System.Drawing`) — dựng
+  control hoàn toàn bằng code Python, không có bước "parse chuỗi XAML"
+  nào cả nên không còn lớp lỗi cú pháp XAML.
+- **Không** subclass bất kỳ kiểu .NET nào, **không** đăng ký sự kiện .NET
+  nào (`add_Click`, `add_CellEditEnding`,...). Tương tác hoàn toàn qua
+  `Button.DialogResult` + `Form.ShowDialog()` (xử lý 100% trong .NET,
+  không cần callback Python), với 1 vòng lặp Python (`while True`) bên
+  ngoài đọc lại toàn bộ dữ liệu trên lưới sau mỗi `ShowDialog()` rồi dựng
+  lại 1 cửa sổ mới với dữ liệu đã cập nhật — xem hàm `run_gui_wizard()`.
+- Vì vậy các thao tác trước đây là "tức thời" (gõ 1 ô, công thức tự tính
+  lại ngay) nay cần bấm 1 nút bất kỳ để "chốt" thay đổi và tính lại — đây
+  là đánh đổi bắt buộc để tương thích 100% với môi trường CPython3/
+  PythonNet 2.5.x của Dynamo, không phải thiếu sót.
+
+Cách tiếp cận này được rút ra trực tiếp từ 1 tool Dynamo khác của bạn
+(`DYNAMO STRUCTURAL FAMILY DUPLICATOR`) — tool đó đã tự phát hiện và ghi
+chú rõ đúng giới hạn này trong comment code, và đã dùng chính kỹ thuật
+"WinForms eventless" để vượt qua. Nếu môi trường Dynamo/Revit của bạn
+nâng cấp lên PythonNet mới hơn (không còn giới hạn TypeBuilder này nữa),
+có thể cân nhắc quay lại WPF với event binding thật để có trải nghiệm
+tức thời hơn — nhưng bản hiện tại ưu tiên **chắc chắn chạy được** trên
+đúng môi trường bạn đang dùng.
 
 ## 7. Tuỳ chỉnh nhanh
 

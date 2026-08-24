@@ -28,34 +28,41 @@ File chính: [`ScanGenericAnnotationTable.py`](ScanGenericAnnotationTable.py)
 2. Click phải vào node → **Change Engine → CPython3** (script được viết
    cho engine CPython3, có hỗ trợ `clr` để gọi thẳng RevitAPI + WPF).
 3. Dán toàn bộ nội dung `ScanGenericAnnotationTable.py` vào node.
-4. Nối input:
+4. Nối input — **chỉ cần `IN[0]` (và `IN[1]` nếu muốn có công tắc bảo
+   vệ) là chạy được ngay**, mọi input khác để trống đều có giá trị mặc
+   định an toàn:
 
    | IN | Nội dung | Bắt buộc |
    |----|----------|----------|
    | `IN[0]` | List các Generic Annotation đã quét chọn (nối từ node **Select Model Elements**, chế độ chọn nhiều) | Có |
-   | `IN[1]` | 1 `ViewSchedule` để đối chiếu số liệu gốc (có thể để `null`) | Không |
-   | `IN[2]` | Tên Parameter chứa chữ hiển thị trên annotation, vd `"Text"`, `"文字"`... Để `""` hoặc `null` để script tự dò | Không |
-   | `IN[3]` | `True/False` — mở GUI hay chạy ngầm không GUI (mặc định `True`) | Không |
+   | `IN[1]` | Node **Boolean** True/False — công tắc bảo vệ. `False` = không làm gì cả (an toàn); `True`/không nối = chạy đầy đủ | Khuyên dùng |
+   | `IN[2]` | 1 `ViewSchedule` để đối chiếu số liệu gốc (có thể để `null`) | Không |
+   | `IN[3]` | Tên Parameter chứa chữ hiển thị trên annotation, vd `"Text"`, `"文字"`... Để `""` hoặc `null` để script tự dò | Không |
    | `IN[4]` | Dung sai gom **hàng** (feet nội bộ Revit), để `null` để tự tính | Không |
    | `IN[5]` | Dung sai gom **cột** (feet nội bộ Revit), để `null` để tự tính | Không |
+   | `IN[6]` | (Nâng cao) `True` = bỏ qua GUI, tự ghi thẳng vào Revit không cho xem trước. Mặc định `False` (luôn mở GUI) | Không |
+
+   > ⚠️ Lưu ý thứ tự IN đã đổi so với bản trước: `IN[1]` giờ là công tắc
+   > **Boolean bảo vệ**, không phải Schedule — đúng với cách bạn đã quen
+   > nối 1 node Boolean vào `IN[1]`. Schedule (nếu dùng) chuyển sang `IN[2]`.
 
 5. Chạy node → cửa sổ GUI hiện ra.
 
-### Sơ đồ graph gợi ý
+### Sơ đồ graph gợi ý (tối giản — chỉ 2 input)
 
 ```
-Select Model Elements  ──────────────► IN[0]
-(chọn các Generic Annotation)
-                                       ┌────────────────────────┐
-Views.GetSchedule (tuỳ chọn) ────────► IN[1]  │ Python Script node   │──► Watch (OUT)
-                                       │ ScanGenericAnnotation-│
-"Text" (Code Block, tuỳ chọn) ───────► IN[2]  │ Table.py               │
-                                       │ (engine = CPython3)    │
-Boolean toggle (True) ───────────────► IN[3]  └────────────────────────┘
+Select Model Elements  ──────────────► IN[0]   ┌────────────────────────┐
+(chọn các Generic Annotation)                  │  Python Script node    │──► Watch (OUT)
+                                                │  ScanGenericAnnotation-│
+Boolean toggle (True) ───────────────► IN[1]   │  Table.py              │
+                                                │  (engine = CPython3)   │
+                                                └────────────────────────┘
 ```
 
-Có thể ghép trực tiếp phía sau graph "MASTER DUPLICATE" hiện có của bạn:
-dùng chính output các phần tử vừa nhân bản/duplicate làm `IN[0]`.
+Muốn dùng thêm Schedule/tên parameter tuỳ biến thì nối thêm vào `IN[2]`,
+`IN[3]`... theo bảng ở trên. Có thể ghép trực tiếp phía sau graph "MASTER
+DUPLICATE" hiện có của bạn: dùng chính output các phần tử vừa nhân
+bản/duplicate làm `IN[0]`.
 
 ---
 
@@ -116,7 +123,7 @@ Mã lỗi hiển thị giống Excel: `#DIV/0!`, `#REF!`, `#VALUE!`, `#NAME?`,
 
 ```jsonc
 {
-  "Status": "Updated" | "Cancelled" | "NoSelection" | "Error",
+  "Status": "Updated" | "Cancelled" | "NoSelection" | "Idle" | "Error",
   "UpdatedCount": 42,      // số ô đã ghi vào Revit
   "TotalCells": 48,        // tổng số ô trong lưới nhận diện được
   "Rows": 8, "Cols": 6,
@@ -153,7 +160,28 @@ công thức lồng nhau, tham chiếu vòng (`#CYCLE!`), chia cho 0 (`#DIV/0!`)
 > `CANDIDATE_PARAM_NAMES` hoặc `row_tol`/`col_tol` cho đúng gia đình family
 > của bạn.
 
-## 6. Tuỳ chỉnh nhanh
+## 6. Lỗi đã gặp & đã fix
+
+**Lỗi `TypeError: unsupported operand type(s) for -` (GUI không hiện ra,
+OUT trả về `Rows/Cols = 0`, `Grid` rỗng):** nguyên nhân là dòng tính toạ
+độ dùng toán tử Python `pt - origin` để trừ 2 điểm `XYZ` của RevitAPI.
+Engine **CPython3** của Dynamo (chạy qua pythonnet) không phải lúc nào
+cũng ánh xạ được toán tử nạp chồng (`operator overload`) của kiểu `XYZ`
+sang toán tử Python `-`, nên phép trừ bị lỗi ngay khi vừa chạy, trước cả
+khi kịp mở GUI. **Đã fix**: đổi sang gọi thẳng phương thức
+`pt.Subtract(origin)` của RevitAPI (luôn hoạt động, bất kể engine) thay
+vì dùng toán tử `-`. Đồng thời đã bọc thêm try/except quanh việc tính
+toạ độ của TỪNG phần tử, để nếu 1 phần tử nào đó vẫn lỗi (vd gia đình
+family đặc biệt) thì chỉ bị bỏ qua kèm cảnh báo, không làm sập toàn bộ
+lần chạy.
+
+Nếu sau này gặp lại lỗi `TypeError: unsupported operand type(s)` ở chỗ
+khác, khả năng cao cũng do cùng nguyên nhân (toán tử `+ - * /` áp dụng
+trực tiếp lên 1 kiểu dữ liệu RevitAPI/.NET) — cách sửa luôn là đổi sang
+gọi phương thức `.NET` tương ứng (`Add`, `Subtract`, `Multiply`,
+`DotProduct`, `Negate`...) thay vì dùng toán tử Python.
+
+## 7. Tuỳ chỉnh nhanh
 
 Mở đầu file `ScanGenericAnnotationTable.py`, phần **`0. CẤU HÌNH`**:
 

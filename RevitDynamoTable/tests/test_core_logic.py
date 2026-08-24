@@ -141,7 +141,10 @@ class TestClustering(unittest.TestCase):
                 self.Y = y
                 self.Z = z
 
-            def __sub__(self, other):
+            def Subtract(self, other):
+                # Khớp đúng API thật của Autodesk.Revit.DB.XYZ.Subtract(),
+                # vì production code (to_uv) dùng .Subtract() thay vì "-"
+                # (xem lý do trong docstring của to_uv trong script chính).
                 return FakeXYZ(self.X - other.X, self.Y - other.Y, self.Z - other.Z)
 
             def DotProduct(self, other):

@@ -24,24 +24,30 @@ CHỨC NĂNG (những gì script này làm):
      TRANSACTION DUY NHẤT (siêu nhanh — không mở/đóng transaction theo
      từng ô), rồi cập nhật ngay trên view Revit.
 
-CÁCH DÙNG TRONG DYNAMO:
-  - Node "Select Model Elements" (chọn nhiều) -> nối vào IN[0].
-    (Bạn quét chọn toàn bộ các Generic Annotation tạo nên bảng trên view.)
-  - (Tuỳ chọn) Node trả về 1 ViewSchedule -> nối vào IN[1]. Để trống nếu
-    không cần đối chiếu Schedule.
-  - IN[2]: tên Parameter chứa chữ hiển thị trên annotation (vd "Text",
-    "文字", "Label"...). Để trống (None / "") để script tự dò theo danh
+CÁCH DÙNG TRONG DYNAMO (chỉ cần nối IN[0] và IN[1] là chạy được ngay,
+mọi input khác đều có thể để trống — script tự dùng giá trị mặc định an
+toàn nếu port đó không tồn tại/không nối):
+  - IN[0] (bắt buộc): Node "Select Model Elements" (chọn nhiều) -> danh
+    sách các Generic Annotation bạn đã quét chọn tạo nên bảng trên view.
+  - IN[1] (khuyên dùng): 1 node Boolean True/False — công tắc bảo vệ.
+    False = KHÔNG làm gì cả (an toàn tuyệt đối). True hoặc không nối =
+    chạy đầy đủ và mở GUI.
+  - IN[2] (tuỳ chọn): 1 ViewSchedule để đối chiếu số liệu gốc, tự điền
+    vào các ô annotation đang còn trống. Để trống nếu không cần.
+  - IN[3] (tuỳ chọn): tên Parameter chứa chữ hiển thị trên annotation
+    (vd "Text", "文字", "Label"...). Để trống để script tự dò theo danh
     sách CANDIDATE_PARAM_NAMES bên dưới.
-  - IN[3]: True/False — có mở GUI hay không (mặc định True).
-  - IN[4], IN[5] (tuỳ chọn, có thể để None): dung sai gom hàng / gom cột
-    theo đơn vị nội bộ Revit (feet). Để None để script tự tính.
+  - IN[4], IN[5] (tuỳ chọn): dung sai gom hàng / gom cột theo đơn vị nội
+    bộ Revit (feet). Để trống để script tự tính.
+  - IN[6] (nâng cao, hiếm dùng): True = bỏ qua GUI, tự tính và ghi thẳng
+    vào Revit không cho xem trước. Mặc định False (luôn mở GUI).
 
   Chọn ENGINE của node Python Script này là "CPython3" (Dynamo cho phép
   đổi engine bằng cách click chuột phải vào node -> Change Engine).
 
 OUT:
   Một Dictionary gồm:
-    "Status"        : "Updated" / "Cancelled" / "NoSelection" / "Error"
+    "Status"        : "Updated" / "Cancelled" / "NoSelection" / "Idle" / "Error"
     "UpdatedCount"  : số ô đã ghi vào Revit
     "TotalCells"    : tổng số ô nhận diện được trong bảng
     "Rows", "Cols"  : kích thước lưới nhận diện được
@@ -176,9 +182,16 @@ def get_location_point(elem, view):
 
 def to_uv(view, pt):
     """Chiếu điểm 3D vào hệ trục 2D (U = ngang, V = dọc) của view,
-    để việc gom cụm hàng/cột không phụ thuộc vào view bị xoay."""
+    để việc gom cụm hàng/cột không phụ thuộc vào view bị xoay.
+
+    QUAN TRỌNG: dùng pt.Subtract(origin) thay vì toán tử "pt - origin".
+    Engine CPython3 của Dynamo (pythonnet) không phải lúc nào cũng ánh xạ
+    được các toán tử nạp chồng (operator overload) của kiểu XYZ trong
+    RevitAPI sang toán tử Python (+ - * /), gây lỗi
+    "TypeError: unsupported operand type(s)". Gọi thẳng phương thức .NET
+    (Subtract/Add/Multiply/DotProduct...) luôn an toàn ở mọi engine."""
     origin = view.Origin
-    vec = pt - origin
+    vec = pt.Subtract(origin)
     u = vec.DotProduct(view.RightDirection)
     v = vec.DotProduct(view.UpDirection)
     return (u, v)
@@ -260,12 +273,18 @@ def build_grid(elements, view, row_tol=None, col_tol=None):
     pts = []
     valid_elems = []
     for e in elements:
-        p = get_location_point(e, view)
-        if p is None:
-            warnings.append(u"Bỏ qua 1 phần tử không xác định được toạ độ (Id=%s)" % getattr(e, "Id", "?"))
+        try:
+            p = get_location_point(e, view)
+            if p is None:
+                warnings.append(u"Bỏ qua 1 phần tử không xác định được toạ độ (Id=%s)" % getattr(e, "Id", "?"))
+                continue
+            uv = to_uv(view, p)
+        except Exception as ex:
+            warnings.append(u"Bỏ qua 1 phần tử do lỗi tính toạ độ (Id=%s): %s"
+                             % (getattr(e, "Id", "?"), str(ex)))
             continue
         valid_elems.append(e)
-        pts.append(to_uv(view, p))
+        pts.append(uv)
 
     if not valid_elems:
         return [], 0, 0, warnings
@@ -1240,9 +1259,23 @@ def _get_in(index, default=None):
 
 
 try:
-    _raw_elements = _get_in(0, [])
-    if not isinstance(_raw_elements, list):
-        _raw_elements = [_raw_elements] if _raw_elements is not None else []
+    _raw_in0 = _get_in(0, [])
+    # Chuẩn hoá IN[0] về list Python — KHÔNG dùng isinstance(x, list) vì
+    # tuỳ engine/phiên bản Dynamo, "Select Model Elements" (chọn nhiều) có
+    # thể trả về 1 list .NET (IEnumerable) chứ không phải list Python
+    # thật; isinstance sẽ sai và bọc nhầm CẢ danh sách thành 1 phần tử.
+    # Cách an toàn: thử duyệt (list(...)) — nếu không duyệt được (đúng là
+    # 1 phần tử đơn lẻ) thì mới bọc thành list 1 phần tử.
+    if _raw_in0 is None:
+        _raw_elements = []
+    elif isinstance(_raw_in0, (list, tuple)):
+        _raw_elements = list(_raw_in0)
+    else:
+        try:
+            _raw_elements = list(_raw_in0)
+        except TypeError:
+            _raw_elements = [_raw_in0]
+
     # Dynamo có thể bọc phần tử qua .NET wrapper (Revit.Elements.Element)
     # -> lấy về đối tượng RevitAPI thật (thuộc tính InternalElement)
     _elements = []
@@ -1251,23 +1284,42 @@ try:
             continue
         _elements.append(_e.InternalElement if hasattr(_e, "InternalElement") else _e)
 
-    _schedule_in = _get_in(1, None)
-    _schedule = None
-    if _schedule_in is not None:
-        _schedule = _schedule_in.InternalElement if hasattr(_schedule_in, "InternalElement") else _schedule_in
+    # IN[1]: nút bảo vệ chạy/không chạy (Boolean) — đúng kiểu bạn đã quen
+    # dùng (nối 1 node Boolean True/False). False -> KHÔNG làm gì cả (an
+    # toàn tuyệt đối, không đụng tới Revit); True/không nối -> chạy đầy đủ.
+    _run_guard = _get_in(1, True)
+    if _run_guard is None:
+        _run_guard = True
 
-    _param_name = _get_in(2, None)
-    if isinstance(_param_name, str) and _param_name.strip() == "":
-        _param_name = None
+    if not _run_guard:
+        OUT = {
+            "Status": "Idle", "UpdatedCount": 0, "TotalCells": 0,
+            "Rows": 0, "Cols": 0, "Grid": [],
+            "Warnings": [u"IN[1] = False — script tạm dừng, chưa xử lý gì. Đặt lại True để chạy."],
+            "ElapsedMs": 0,
+        }
+    else:
+        _schedule_in = _get_in(2, None)
+        _schedule = None
+        if _schedule_in is not None:
+            _schedule = _schedule_in.InternalElement if hasattr(_schedule_in, "InternalElement") else _schedule_in
 
-    _show_gui = _get_in(3, True)
-    if _show_gui is None:
-        _show_gui = True
+        _param_name = _get_in(3, None)
+        if isinstance(_param_name, str) and _param_name.strip() == "":
+            _param_name = None
 
-    _row_tol = _get_in(4, None)
-    _col_tol = _get_in(5, None)
+        _row_tol = _get_in(4, None)
+        _col_tol = _get_in(5, None)
 
-    OUT = run(_elements, _schedule, _param_name, _show_gui, _row_tol, _col_tol)
+        # IN[6] (nâng cao, hiếm dùng): True -> bỏ qua GUI, tự tính và ghi
+        # thẳng vào Revit (không cho xem/chỉnh trước). Mặc định False —
+        # LUÔN mở GUI để bạn xem và chỉnh trước khi ghi, đúng như yêu cầu.
+        _headless = _get_in(6, False)
+        if _headless is None:
+            _headless = False
+        _show_gui = not _headless
+
+        OUT = run(_elements, _schedule, _param_name, _show_gui, _row_tol, _col_tol)
 except Exception as _ex:
     OUT = {
         "Status": "Error", "UpdatedCount": 0, "TotalCells": 0,

@@ -53,7 +53,11 @@ OUT:
     "Rows", "Cols"  : kích thước lưới nhận diện được
     "Grid"          : lưới giá trị cuối cùng (list các list string)
     "Warnings"      : danh sách cảnh báo/lỗi (nếu có) trong quá trình chạy
-    "ElapsedMs"     : thời gian xử lý (mili-giây)
+    "ElapsedMs"     : tổng thời gian xử lý — bao gồm cả thời gian bạn thao
+                      tác trên GUI (mili-giây)
+    "WriteMs"       : thời gian THỰC TẾ để ghi vào Revit — chỉ tính phần
+                      Transaction, không tính thời gian chờ GUI (mili-giây)
+    "CellsPerSecond": tốc độ ghi thực đo được = số ô đã ghi / (WriteMs/1000)
 
 LƯU Ý QUAN TRỌNG:
   Script được viết đúng theo chuẩn Revit API / Dynamo (RevitServices,
@@ -127,7 +131,7 @@ try:
         DialogResult, FormStartPosition, FormBorderStyle, FlatStyle,
         MessageBox, MessageBoxButtons, MessageBoxIcon, Application,
     )
-    from System.Drawing import Color, Font, FontStyle, Point, Size, GraphicsUnit, SystemFonts
+    from System.Drawing import Color, Font, FontStyle, Point, Size, GraphicsUnit, SystemFonts, ContentAlignment
     try:
         from System import Single
     except Exception:
@@ -899,7 +903,7 @@ def run_gui_wizard(doc_, n_rows, n_cols, grid_elems, raw_formulas, param_name_by
     stats_msg = u"Bôi chọn 1 vùng ô rồi bấm \"Σ Xem nhanh\" để xem SUM / AVERAGE / MIN / MAX / PRODUCT."
     dest_text = ""
     func_selected = 0
-    result = {"status": "Cancelled", "updated": 0}
+    result = {"status": "Cancelled", "updated": 0, "write_ms": 0}
     NONE_RESULT = getattr(DialogResult, "None")
 
     while True:
@@ -920,6 +924,15 @@ def run_gui_wizard(doc_, n_rows, n_cols, grid_elems, raw_formulas, param_name_by
         add_label(header, u"⬛ BẢNG DỮ LIỆU GENERIC ANNOTATION", 16, 6, 560, 26, C_GOLD, True, 14.0)
         add_label(header, u"%d hàng × %d cột — %d ô" % (n_rows, n_cols, n_rows * n_cols),
                   16, 31, 500, 20, C_TEXT_DIM, False, 9.0)
+        badge = Label()
+        badge.Text = u"⚡ SIÊU NHANH — 1 TRANSACTION"
+        badge.Size = Size(220, 30)
+        badge.Location = Point(cw - 12 - 220, 12)
+        badge.TextAlign = ContentAlignment.MiddleCenter
+        badge.BackColor = C_GOLD_DARK
+        badge.ForeColor = C_INK
+        set_font(badge, 9.0, True)
+        header.Controls.Add(badge)
 
         add_label(f, u"Ô đích:", 12, 66, 55, 22, C_TEXT_DIM, False, 9.0)
         txt_dest = add_textbox(f, dest_text, 68, 62, 90, 26)
@@ -1082,11 +1095,15 @@ def run_gui_wizard(doc_, n_rows, n_cols, grid_elems, raw_formulas, param_name_by
                 status_msg = u"Đã huỷ thao tác cập nhật."
                 continue
             try:
-                updated = write_back(doc_, grid_elems, raw_formulas, cache, param_name_by_elem, warnings)
+                updated, write_ms = write_back(doc_, grid_elems, raw_formulas, cache, param_name_by_elem, warnings)
                 result["status"] = "Updated"
                 result["updated"] = updated
-                MessageBox.Show(u"Đã cập nhật %d ô vào Revit." % updated, u"Hoàn tất",
-                                 MessageBoxButtons.OK, MessageBoxIcon.Information)
+                result["write_ms"] = write_ms
+                rate = (updated / (write_ms / 1000.0)) if write_ms > 0 and updated > 0 else 0.0
+                MessageBox.Show(
+                    u"Đã cập nhật %d ô vào Revit trong %d ms (~%.0f ô/giây)."
+                    % (updated, write_ms, rate),
+                    u"Hoàn tất — SIÊU NHANH", MessageBoxButtons.OK, MessageBoxIcon.Information)
             except Exception as ex:
                 warnings.append(str(ex))
                 warnings.append(traceback.format_exc())
@@ -1112,7 +1129,17 @@ def write_back(doc_, grid_elems, raw_formulas, engine_cache, param_name_by_elem,
     KHÔNG dùng TransactionManager.Instance.EnsureInTransaction, vì luồng
     chính đang bị chặn bởi Form.ShowDialog() (modal) trong lúc GUI mở,
     và Transaction .NET thường cho toàn quyền kiểm soát start/commit/
-    rollback một cách tường minh, dễ dự đoán hơn."""
+    rollback một cách tường minh, dễ dự đoán hơn.
+
+    TỐI ƯU TỐC ĐỘ ("1s/200 ô"): chỉ những ô THỰC SỰ đổi giá trị mới được
+    ghi (so sánh old_text != new_text trước khi đưa vào danh sách ghi);
+    toàn bộ nằm trong ĐÚNG 1 Transaction (Revit chỉ Regenerate/rebuild đồ
+    hoạ 1 lần ở cuối, không phải hàng trăm lần); tên parameter mỗi phần
+    tử đã được xác định sẵn từ bước quét (param_name_by_elem) nên ở đây
+    chỉ còn đúng 1 lệnh LookupParameter theo tên — không dò lại danh sách
+    candidate. Trả về (số ô đã ghi, thời gian ghi mili-giây) để báo cáo
+    tốc độ thực tế cho người dùng, thay vì chỉ tuyên bố suông."""
+    t_start = time.time()
     updates = []  # (elem, param, pname, new_text)
     n_rows = len(grid_elems)
     n_cols = len(grid_elems[0]) if n_rows else 0
@@ -1132,7 +1159,7 @@ def write_back(doc_, grid_elems, raw_formulas, engine_cache, param_name_by_elem,
                 updates.append((elem, param, pname, new_text))
 
     if not updates:
-        return 0
+        return 0, int((time.time() - t_start) * 1000)
 
     # Đóng transaction "lơ lửng" của Dynamo (nếu có) trước khi tự mở 1
     # Transaction thường — tránh xung đột giữa 2 cơ chế quản lý transaction.
@@ -1187,7 +1214,7 @@ def write_back(doc_, grid_elems, raw_formulas, engine_cache, param_name_by_elem,
             pass
         raise
 
-    return updated
+    return updated, int((time.time() - t_start) * 1000)
 
 
 # ------------------------------------------------------------------------
@@ -1240,12 +1267,14 @@ def run(elements, schedule, forced_param_name, show_gui, row_tol, col_tol):
         for r in range(n_rows):
             for c in range(n_cols):
                 cache[(r, c)] = engine.value_of(r, c)
-        updated = write_back(doc, grid_elems, raw_formulas, cache, param_name_by_elem, warnings)
+        updated, write_ms = write_back(doc, grid_elems, raw_formulas, cache, param_name_by_elem, warnings)
         out_grid = [[format_value(cache.get((r, c))) for c in range(n_cols)] for r in range(n_rows)]
         return {
             "Status": "Updated", "UpdatedCount": updated, "TotalCells": n_rows * n_cols,
             "Rows": n_rows, "Cols": n_cols, "Grid": out_grid, "Warnings": warnings,
             "ElapsedMs": int((time.time() - t0) * 1000),
+            "WriteMs": write_ms,
+            "CellsPerSecond": round(updated / (write_ms / 1000.0), 1) if write_ms > 0 and updated > 0 else 0,
         }
 
     # ---------------- GUI MODE ----------------
@@ -1255,18 +1284,23 @@ def run(elements, schedule, forced_param_name, show_gui, row_tol, col_tol):
             "Rows": n_rows, "Cols": n_cols, "Grid": [],
             "Warnings": warnings + [u"Không nạp được WinForms GUI: %s" % GUI_IMPORT_ERROR],
             "ElapsedMs": int((time.time() - t0) * 1000),
+            "WriteMs": 0, "CellsPerSecond": 0,
         }
 
     gui_result, cache = run_gui_wizard(doc, n_rows, n_cols, grid_elems, raw_formulas, param_name_by_elem, warnings)
 
     out_grid = [[format_value(cache.get((r, c))) for c in range(n_cols)] for r in range(n_rows)]
+    write_ms = gui_result.get("write_ms", 0)
+    updated = gui_result["updated"]
     return {
         "Status": gui_result["status"],
-        "UpdatedCount": gui_result["updated"],
+        "UpdatedCount": updated,
         "TotalCells": n_rows * n_cols,
         "Rows": n_rows, "Cols": n_cols,
         "Grid": out_grid, "Warnings": warnings,
         "ElapsedMs": int((time.time() - t0) * 1000),
+        "WriteMs": write_ms,
+        "CellsPerSecond": round(updated / (write_ms / 1000.0), 1) if write_ms > 0 and updated > 0 else 0,
     }
 
 

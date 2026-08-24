@@ -1,5 +1,13 @@
 # Scan Generic Annotation Table — Dynamo Python (Revit)
 
+> ⚠️ **Mỗi khi cập nhật file này, phải dán lại TOÀN BỘ nội dung mới nhất
+> của `ScanGenericAnnotationTable.py` vào node Python Script trong
+> Dynamo** (chọn hết Ctrl+A trong node rồi paste đè). Dán thiếu / dán bản
+> cũ là nguyên nhân phổ biến nhất gây ra lỗi trông như "code hỏng" —
+> trong khi bản mới nhất trong repo đã không còn lỗi đó. Nếu gặp lỗi,
+> luôn xác nhận trước: nội dung trong node đang có đúng bằng file mới
+> nhất ở đây không.
+
 Công cụ Dynamo (Python Script node) giúp:
 
 1. **Quét chọn** các Family Instance (Generic Annotation) tạo thành bảng
@@ -136,9 +144,16 @@ Mã lỗi hiển thị giống Excel: `#DIV/0!`, `#REF!`, `#VALUE!`, `#NAME?`,
   "Rows": 8, "Cols": 6,
   "Grid": [["...","..."], ...],  // lưới giá trị cuối cùng
   "Warnings": ["..."],     // cảnh báo/lỗi trong quá trình chạy
-  "ElapsedMs": 187
+  "ElapsedMs": 187,        // tổng thời gian (kể cả lúc bạn thao tác trên GUI)
+  "WriteMs": 9,            // thời gian THỰC ghi vào Revit — chỉ phần Transaction
+  "CellsPerSecond": 4666.7 // tốc độ ghi thực đo được = UpdatedCount / (WriteMs/1000)
 }
 ```
+
+`WriteMs`/`CellsPerSecond` là số đo THẬT của riêng bước ghi (không tính thời
+gian bạn ngồi sửa dữ liệu trên GUI) — cũng hiển thị ngay trong hộp thoại
+"Hoàn tất" sau khi bấm "✔ Cập nhật vào Revit", để bạn tự kiểm chứng tốc độ
+thay vì chỉ nghe tuyên bố suông.
 
 ---
 

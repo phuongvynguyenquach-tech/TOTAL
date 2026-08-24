@@ -163,7 +163,12 @@ class TestClustering(unittest.TestCase):
         self.assertEqual(grid[0][2].tag, "R0C2")
         self.assertEqual(grid[1][0].tag, "R1C0")
         self.assertEqual(grid[1][2].tag, "R1C2")
-        self.assertEqual(warnings, [])
+        # 1 dòng tóm tắt thông tin (hàng/cột/dung sai) luôn được thêm vào,
+        # nhưng không có cảnh báo LỖI nào (đánh dấu bằng "⚠") vì lưới sạch,
+        # lấp đầy 100%.
+        self.assertTrue(len(warnings) >= 1)
+        self.assertFalse(any(u"⚠" in w for w in warnings))
+        self.assertIn(u"100%", warnings[-1])
 
 
 class TestFormulaEngine(unittest.TestCase):
@@ -258,6 +263,133 @@ class TestFormatValue(unittest.TestCase):
 
     def test_string_passthrough(self):
         self.assertEqual(mod.format_value("#DIV/0!"), "#DIV/0!")
+
+
+class _FakeParameter(object):
+    """Giả lập Autodesk.Revit.DB.Parameter đủ dùng cho find_text_source /
+    detect_best_param_name — chỉ cần .StorageType, .AsString(), .Definition.Name."""
+
+    def __init__(self, name, value, is_double=False, read_only=False):
+        self.name = name
+        self.value = value
+        self.StorageType = (mod.Autodesk.Revit.DB.StorageType.Double if is_double
+                             else mod.Autodesk.Revit.DB.StorageType.String)
+        self.IsReadOnly = read_only
+        self.Definition = types.SimpleNamespace(Name=name)
+
+    def AsString(self):
+        return self.value
+
+    def AsValueString(self):
+        return self.value
+
+    def Set(self, v):
+        self.value = v
+
+
+class _FakeSymbol(object):
+    def __init__(self, sid, name, params=None):
+        self.Id = types.SimpleNamespace(IntegerValue=sid)
+        self.Name = name
+        self._params = {p.name: p for p in (params or [])}
+
+    def LookupParameter(self, name):
+        return self._params.get(name)
+
+
+class _FakeAnnotation(object):
+    """Giả lập 1 Generic Annotation FamilyInstance: có Parameter riêng
+    (Instance) và 1 Symbol/Type (có thể có Parameter + Name riêng)."""
+
+    def __init__(self, elem_id, params=None, symbol=None):
+        self.Id = types.SimpleNamespace(IntegerValue=elem_id)
+        self._params = {p.name: p for p in (params or [])}
+        self.Symbol = symbol
+
+    def LookupParameter(self, name):
+        return self._params.get(name)
+
+    def GetOrderedParameters(self):
+        return list(self._params.values())
+
+    def get_Parameter(self, _bip):
+        return self._params.get("Comments")
+
+
+class TestFindTextSource(unittest.TestCase):
+    def test_uses_matching_candidate_instance_param(self):
+        e = _FakeAnnotation(1, params=[_FakeParameter("Text", u"Hello")])
+        source = mod.find_text_source(e)
+        self.assertIsNotNone(source)
+        self.assertEqual(source.kind, "PARAM")
+        self.assertEqual(source.name, "Text")
+        self.assertEqual(mod.read_source_text(source), u"Hello")
+
+    def test_falls_back_to_type_parameter_when_no_instance_param(self):
+        sym = _FakeSymbol(9, u"TYPE-9", params=[_FakeParameter("Label", u"Từ Type")])
+        e = _FakeAnnotation(1, params=[], symbol=sym)
+        source = mod.find_text_source(e, forced_name="Label")
+        self.assertIsNotNone(source)
+        self.assertEqual(source.kind, "PARAM")
+        self.assertEqual(mod.read_source_text(source), u"Từ Type")
+
+    def test_type_name_sentinel_reads_symbol_name(self):
+        sym = _FakeSymbol(9, u"A1-300x500")
+        e = _FakeAnnotation(1, params=[], symbol=sym)
+        source = mod.find_text_source(e, forced_name=mod.TYPE_NAME_SENTINEL)
+        self.assertIsNotNone(source)
+        self.assertEqual(source.kind, "TYPE_NAME")
+        self.assertEqual(mod.read_source_text(source), u"A1-300x500")
+
+    def test_returns_none_when_nothing_matches(self):
+        e = _FakeAnnotation(1, params=[])
+        source = mod.find_text_source(e, forced_name="KhongTonTai")
+        self.assertIsNone(source)
+
+
+class TestDetectBestParamName(unittest.TestCase):
+    def test_picks_highest_coverage_candidate(self):
+        elems = [
+            _FakeAnnotation(1, params=[_FakeParameter(u"文字", u"300"), _FakeParameter("Comments", u"")]),
+            _FakeAnnotation(2, params=[_FakeParameter(u"文字", u"350"), _FakeParameter("Comments", u"")]),
+            _FakeAnnotation(3, params=[_FakeParameter(u"文字", u""), _FakeParameter("Comments", u"x")]),
+        ]
+        name, coverage, n = mod.detect_best_param_name(elems)
+        self.assertEqual(name, u"文字")
+        self.assertAlmostEqual(coverage, 2.0 / 3.0)
+        self.assertEqual(n, 3)
+
+    def test_falls_back_to_type_name_when_no_param_has_content(self):
+        elems = [
+            _FakeAnnotation(1, params=[], symbol=_FakeSymbol(1, u"SIZE-A")),
+            _FakeAnnotation(2, params=[], symbol=_FakeSymbol(2, u"SIZE-B")),
+        ]
+        name, coverage, n = mod.detect_best_param_name(elems)
+        self.assertEqual(name, mod.TYPE_NAME_SENTINEL)
+        self.assertEqual(coverage, 1.0)
+
+    def test_generic_scan_finds_uncommon_param_name(self):
+        # Không phần tử nào khớp CANDIDATE_PARAM_NAMES lẫn Type Name, nhưng
+        # có 1 parameter chữ "MyCustomLabel" với nội dung -> phải tự dò ra.
+        elems = [
+            _FakeAnnotation(1, params=[_FakeParameter("MyCustomLabel", u"100")]),
+            _FakeAnnotation(2, params=[_FakeParameter("MyCustomLabel", u"200")]),
+        ]
+        name, coverage, n = mod.detect_best_param_name(elems)
+        self.assertEqual(name, "MyCustomLabel")
+        self.assertEqual(coverage, 1.0)
+
+    def test_returns_none_when_truly_nothing_found(self):
+        elems = [_FakeAnnotation(1, params=[]), _FakeAnnotation(2, params=[])]
+        name, coverage, n = mod.detect_best_param_name(elems)
+        self.assertIsNone(name)
+        self.assertEqual(coverage, 0.0)
+
+    def test_forced_name_short_circuits_detection(self):
+        elems = [_FakeAnnotation(1, params=[_FakeParameter(u"文字", u"300")])]
+        name, coverage, n = mod.detect_best_param_name(elems, forced_name="MyParam")
+        self.assertEqual(name, "MyParam")
+        self.assertIsNone(coverage)
 
 
 if __name__ == "__main__":

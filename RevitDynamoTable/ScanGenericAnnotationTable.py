@@ -35,8 +35,14 @@ toàn nếu port đó không tồn tại/không nối):
   - IN[2] (tuỳ chọn): 1 ViewSchedule để đối chiếu số liệu gốc, tự điền
     vào các ô annotation đang còn trống. Để trống nếu không cần.
   - IN[3] (tuỳ chọn): tên Parameter chứa chữ hiển thị trên annotation
-    (vd "Text", "文字", "Label"...). Để trống để script tự dò theo danh
-    sách CANDIDATE_PARAM_NAMES bên dưới.
+    (vd "Text", "文字", "Label"...). Để trống để script TỰ DÒ bằng cách
+    khảo sát thực tế trên chính các phần tử đã chọn (xem
+    detect_best_param_name): thử lần lượt CANDIDATE_PARAM_NAMES bên dưới
+    (cả Instance lẫn Type Parameter), nếu family lưu chữ bằng cách đặt
+    TÊN TYPE riêng cho từng ô (Family Type Name) thì tự chuyển sang dùng
+    tên Type, và nếu vẫn không thấy gì thì quét toàn bộ parameter chữ
+    đang có để tự chọn cái phổ biến nhất — không đoán mù theo 1 danh sách
+    cố định.
   - IN[4], IN[5] (tuỳ chọn): dung sai gom hàng / gom cột theo đơn vị nội
     bộ Revit (feet). Để trống để script tự tính.
   - IN[6] (nâng cao, hiếm dùng): True = bỏ qua GUI, tự tính và ghi thẳng
@@ -351,31 +357,45 @@ def build_grid(elements, view, row_tol=None, col_tol=None):
             u"dung sai hoặc kiểm tra lại vùng chọn." % collisions
         )
 
+    fill_ratio = (len(valid_elems) / float(n_rows * n_cols)) if n_rows * n_cols else 0.0
+    warnings.append(
+        u"Dò được lưới %d hàng × %d cột (%d ô) từ %d phần tử hợp lệ — lấp đầy %.0f%%. "
+        u"Dung sai gom hàng/cột đang dùng: %.5f / %.5f (feet nội bộ Revit)."
+        % (n_rows, n_cols, n_rows * n_cols, len(valid_elems), fill_ratio * 100.0, rt, ct)
+    )
+    if fill_ratio < 0.5:
+        warnings.append(
+            u"⚠ Lưới có vẻ DÒ SAI (lấp đầy dưới 50%%, nhiều ô trống bất thường) — nhiều khả năng dung sai "
+            u"gom hàng/cột đang quá NHỎ nên các annotation gần nhau bị tách nhầm thành nhiều hàng/cột khác "
+            u"nhau thay vì gộp vào cùng 1 hàng/cột. Hãy thử: (1) truyền row_tol/col_tol LỚN HƠN giá trị ở "
+            u"trên vào IN[4]/IN[5] (đơn vị feet nội bộ Revit, 1mm ≈ 0.00328ft), hoặc (2) kiểm tra lại đã "
+            u"quét đúng CHỈ các annotation của 1 bảng duy nhất (không lẫn phần tử của bảng/family khác)."
+        )
+
     return grid_elems, n_rows, n_cols, warnings
 
 
 # ------------------------------------------------------------------------
 # 3. ĐỌC PARAMETER TRÊN ANNOTATION / ĐỌC SCHEDULE
 # ------------------------------------------------------------------------
-def find_text_parameter(elem, forced_name=None):
-    """Trả về (Parameter, tên_đang_dùng) đầu tiên phù hợp để đọc/ghi chữ."""
-    if forced_name:
-        p = elem.LookupParameter(forced_name)
-        if p is not None:
-            return p, forced_name
-    for name in CANDIDATE_PARAM_NAMES:
-        p = elem.LookupParameter(name)
-        if p is not None:
-            return p, name
-    # fallback cuối: BuiltInParameter ALL_MODEL_INSTANCE_COMMENTS (ít dùng
-    # cho annotation nhưng để tránh trắng tay nếu family dùng comment)
-    try:
-        p = elem.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
-        if p is not None:
-            return p, "Comments"
-    except Exception:
-        pass
-    return None, None
+# Rất nhiều family "bảng kiểu Excel" dựng từ Generic Annotation KHÔNG lưu
+# chữ trong 1 Instance Parameter, mà mỗi ô là 1 FAMILY TYPE (Symbol) RIÊNG
+# và Label trong family tham chiếu chính TÊN TYPE (hoặc 1 Type Parameter)
+# để hiển thị — nghĩa là chữ "nằm" ở elem.Symbol.Name, không phải ở
+# elem.LookupParameter(...). TYPE_NAME_SENTINEL đại diện cho nguồn dữ liệu
+# đặc biệt này trong toàn bộ phần còn lại của script.
+TYPE_NAME_SENTINEL = u"__TYPE_NAME__"
+
+
+class CellSource(object):
+    """Bọc 1 nguồn dữ liệu chữ của 1 ô: hoặc 1 Parameter (Instance/Type),
+    hoặc chính TÊN của FamilySymbol (Type Name)."""
+    __slots__ = ("kind", "ref", "name")
+
+    def __init__(self, kind, ref, name):
+        self.kind = kind        # "PARAM" hoặc "TYPE_NAME"
+        self.ref = ref          # Parameter, hoặc FamilySymbol/ElementType
+        self.name = name        # tên hiển thị để log/báo cáo
 
 
 def read_cell_text(param):
@@ -389,6 +409,132 @@ def read_cell_text(param):
         return v if v is not None else ""
     except Exception:
         return ""
+
+
+def _lookup_param_instance_or_type(elem, name):
+    """Tìm Parameter theo tên: thử Instance trước, không có thì thử Type
+    (Symbol) — vì Label trong family có thể bind vào Type Parameter."""
+    p = None
+    try:
+        p = elem.LookupParameter(name)
+    except Exception:
+        p = None
+    if p is not None:
+        return p
+    try:
+        sym = elem.Symbol
+        if sym is not None:
+            p = sym.LookupParameter(name)
+    except Exception:
+        p = None
+    return p
+
+
+def find_text_source(elem, forced_name=None):
+    """Trả về CellSource đầu tiên phù hợp để đọc/ghi chữ cho 1 annotation."""
+    if forced_name == TYPE_NAME_SENTINEL:
+        try:
+            sym = elem.Symbol
+            if sym is not None:
+                return CellSource("TYPE_NAME", sym, TYPE_NAME_SENTINEL)
+        except Exception:
+            pass
+        return None
+    if forced_name:
+        p = _lookup_param_instance_or_type(elem, forced_name)
+        if p is not None:
+            return CellSource("PARAM", p, forced_name)
+    for name in CANDIDATE_PARAM_NAMES:
+        p = _lookup_param_instance_or_type(elem, name)
+        if p is not None:
+            return CellSource("PARAM", p, name)
+    # fallback cuối: BuiltInParameter ALL_MODEL_INSTANCE_COMMENTS (ít dùng
+    # cho annotation nhưng để tránh trắng tay nếu family dùng comment)
+    try:
+        p = elem.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)
+        if p is not None:
+            return CellSource("PARAM", p, "Comments")
+    except Exception:
+        pass
+    return None
+
+
+def read_source_text(source):
+    if source is None:
+        return ""
+    if source.kind == "PARAM":
+        return read_cell_text(source.ref)
+    if source.kind == "TYPE_NAME":
+        try:
+            v = source.ref.Name
+            return v if v is not None else ""
+        except Exception:
+            return ""
+    return ""
+
+
+def _sample_read(elem, name):
+    if name == TYPE_NAME_SENTINEL:
+        try:
+            sym = elem.Symbol
+            return sym.Name if sym is not None and sym.Name else ""
+        except Exception:
+            return ""
+    p = _lookup_param_instance_or_type(elem, name)
+    return read_cell_text(p) if p is not None else ""
+
+
+def detect_best_param_name(elements, forced_name=None, sample_limit=100):
+    """Tự động dò nguồn dữ liệu chữ TỐT NHẤT bằng cách khảo sát thực tế
+    trên chính các phần tử đã chọn — không đoán mù theo 1 danh sách tên cố
+    định. Trả về (tên_hoặc_sentinel, tỉ_lệ_có_chữ, số_phần_tử_đã_khảo_sát).
+
+    Bước 1: thử từng tên trong CANDIDATE_PARAM_NAMES + TYPE_NAME_SENTINEL
+            (rẻ, đủ dùng cho đa số trường hợp).
+    Bước 2 (chỉ chạy khi bước 1 không ra kết quả nào): quét TOÀN BỘ
+            parameter kiểu chữ đang có trên các phần tử, đếm tần suất có
+            nội dung không rỗng, chọn tên phổ biến nhất."""
+    if forced_name:
+        return forced_name, None, 0
+    sample = elements[:sample_limit] if len(elements) > sample_limit else elements
+    if not sample:
+        return None, 0.0, 0
+
+    best_name, best_count = None, 0
+    for name in list(CANDIDATE_PARAM_NAMES) + [TYPE_NAME_SENTINEL]:
+        count = 0
+        for e in sample:
+            txt = _sample_read(e, name)
+            if txt and txt.strip():
+                count += 1
+        if count > best_count:
+            best_count, best_name = count, name
+    if best_count > 0:
+        return best_name, best_count / float(len(sample)), len(sample)
+
+    freq = {}
+    for e in sample:
+        try:
+            params = list(e.GetOrderedParameters())
+        except Exception:
+            try:
+                params = list(e.Parameters)
+            except Exception:
+                params = []
+        for p in params:
+            try:
+                if p.StorageType != Autodesk.Revit.DB.StorageType.String:
+                    continue
+                nm = p.Definition.Name
+                txt = read_cell_text(p)
+                if txt and txt.strip():
+                    freq[nm] = freq.get(nm, 0) + 1
+            except Exception:
+                continue
+    if not freq:
+        return None, 0.0, len(sample)
+    best_name = max(freq, key=freq.get)
+    return best_name, freq[best_name] / float(len(sample)), len(sample)
 
 
 def read_schedule_grid(schedule):
@@ -1134,29 +1280,63 @@ def write_back(doc_, grid_elems, raw_formulas, engine_cache, param_name_by_elem,
     TỐI ƯU TỐC ĐỘ ("1s/200 ô"): chỉ những ô THỰC SỰ đổi giá trị mới được
     ghi (so sánh old_text != new_text trước khi đưa vào danh sách ghi);
     toàn bộ nằm trong ĐÚNG 1 Transaction (Revit chỉ Regenerate/rebuild đồ
-    hoạ 1 lần ở cuối, không phải hàng trăm lần); tên parameter mỗi phần
-    tử đã được xác định sẵn từ bước quét (param_name_by_elem) nên ở đây
-    chỉ còn đúng 1 lệnh LookupParameter theo tên — không dò lại danh sách
-    candidate. Trả về (số ô đã ghi, thời gian ghi mili-giây) để báo cáo
-    tốc độ thực tế cho người dùng, thay vì chỉ tuyên bố suông."""
+    hoạ 1 lần ở cuối, không phải hàng trăm lần); tên nguồn dữ liệu mỗi
+    phần tử đã được xác định sẵn từ bước quét (param_name_by_elem) nên ở
+    đây chỉ còn đúng 1 lệnh LookupParameter theo tên — không dò lại danh
+    sách candidate. Trả về (số ô đã ghi, thời gian ghi mili-giây) để báo
+    cáo tốc độ thực tế cho người dùng, thay vì chỉ tuyên bố suông.
+
+    Hỗ trợ cả 2 loại nguồn dữ liệu (xem CellSource): "PARAM" (ghi bằng
+    Parameter.Set như bình thường) và "TYPE_NAME" (chữ nằm ở TÊN của
+    FamilySymbol/Type — ghi bằng cách đổi tên Type). Vì đổi tên 1 Type sẽ
+    ảnh hưởng TẤT CẢ phần tử đang dùng Type đó, script chỉ tự động đổi
+    tên khi Type đó CHỈ được đúng 1 ô trong bảng tham chiếu tới — nếu 1
+    Type bị nhiều ô dùng chung, các ô đó bị bỏ qua kèm cảnh báo thay vì
+    đổi tên "nhầm" ảnh hưởng dây chuyền ra ngoài bảng."""
     t_start = time.time()
-    updates = []  # (elem, param, pname, new_text)
     n_rows = len(grid_elems)
     n_cols = len(grid_elems[0]) if n_rows else 0
+
+    # Đếm số ô đang dùng chung mỗi Type (chỉ cần cho nguồn TYPE_NAME).
+    symbol_cell_count = {}
+    for r in range(n_rows):
+        for c in range(n_cols):
+            elem = grid_elems[r][c]
+            if elem is None:
+                continue
+            if param_name_by_elem.get(elem.Id.IntegerValue) == TYPE_NAME_SENTINEL:
+                try:
+                    sid = elem.Symbol.Id.IntegerValue
+                    symbol_cell_count[sid] = symbol_cell_count.get(sid, 0) + 1
+                except Exception:
+                    pass
+
+    updates = []  # (elem, source, new_text)
     for r in range(n_rows):
         for c in range(n_cols):
             elem = grid_elems[r][c]
             if elem is None:
                 continue
             new_text = format_value(engine_cache.get((r, c)))
-            param, pname = find_text_parameter(elem, param_name_by_elem.get(elem.Id.IntegerValue))
-            if param is None:
-                warnings.append(u"Không tìm thấy parameter chữ trên phần tử Id=%s (hàng %d, cột %s)"
+            source = find_text_source(elem, param_name_by_elem.get(elem.Id.IntegerValue))
+            if source is None:
+                warnings.append(u"Không tìm thấy nguồn dữ liệu chữ trên phần tử Id=%s (hàng %d, cột %s)"
                                  % (elem.Id, r + 1, col_letter(c)))
                 continue
-            old_text = read_cell_text(param)
+            if source.kind == "TYPE_NAME":
+                try:
+                    sid = elem.Symbol.Id.IntegerValue
+                except Exception:
+                    sid = None
+                if sid is not None and symbol_cell_count.get(sid, 0) > 1:
+                    warnings.append(
+                        u"Bỏ qua ô (hàng %d, cột %s): Type '%s' đang dùng chung cho %d ô khác nhau — "
+                        u"đổi tên Type sẽ ảnh hưởng tất cả các ô đó nên không tự động ghi."
+                        % (r + 1, col_letter(c), source.ref.Name, symbol_cell_count.get(sid, 0)))
+                    continue
+            old_text = read_source_text(source)
             if old_text != new_text:
-                updates.append((elem, param, pname, new_text))
+                updates.append((elem, source, new_text))
 
     if not updates:
         return 0, int((time.time() - t_start) * 1000)
@@ -1173,27 +1353,32 @@ def write_back(doc_, grid_elems, raw_formulas, engine_cache, param_name_by_elem,
     t = Transaction(doc_, u"Cập nhật bảng Generic Annotation")
     t.Start()
     try:
-        for elem, param, pname, new_text in updates:
+        for elem, source, new_text in updates:
             st = SubTransaction(doc_)
             st.Start()
             try:
-                if param.IsReadOnly:
-                    warnings.append(u"Parameter '%s' chỉ đọc trên Id=%s — bỏ qua." % (pname, elem.Id))
-                    st.RollBack()
-                    continue
-                if param.StorageType == Autodesk.Revit.DB.StorageType.String:
-                    param.Set(new_text)
+                if source.kind == "TYPE_NAME":
+                    source.ref.Name = new_text
                 else:
-                    # cố gắng ép kiểu nếu parameter là số (Double/Integer)
-                    try:
-                        if param.StorageType == Autodesk.Revit.DB.StorageType.Double:
-                            param.Set(float(new_text))
-                        elif param.StorageType == Autodesk.Revit.DB.StorageType.Integer:
-                            param.Set(int(round(float(new_text))))
-                        else:
-                            param.Set(new_text)
-                    except Exception:
+                    param = source.ref
+                    if param.IsReadOnly:
+                        warnings.append(u"Parameter '%s' chỉ đọc trên Id=%s — bỏ qua."
+                                         % (source.name, elem.Id))
+                        st.RollBack()
+                        continue
+                    if param.StorageType == Autodesk.Revit.DB.StorageType.String:
                         param.Set(new_text)
+                    else:
+                        # cố gắng ép kiểu nếu parameter là số (Double/Integer)
+                        try:
+                            if param.StorageType == Autodesk.Revit.DB.StorageType.Double:
+                                param.Set(float(new_text))
+                            elif param.StorageType == Autodesk.Revit.DB.StorageType.Integer:
+                                param.Set(int(round(float(new_text))))
+                            else:
+                                param.Set(new_text)
+                        except Exception:
+                            param.Set(new_text)
                 st.Commit()
                 updated += 1
             except Exception as ex:
@@ -1244,6 +1429,27 @@ def run(elements, schedule, forced_param_name, show_gui, row_tol, col_tol):
 
     schedule_grid = read_schedule_grid(schedule) if schedule is not None else None
 
+    # ----- Tự động dò nguồn dữ liệu chữ TỐT NHẤT dựa trên khảo sát thực
+    # tế các phần tử đã chọn (không đoán mù) — xem detect_best_param_name.
+    flat_elements = [grid_elems[r][c] for r in range(n_rows) for c in range(n_cols)
+                      if grid_elems[r][c] is not None]
+    auto_name, coverage, sample_n = detect_best_param_name(flat_elements, forced_param_name)
+    if forced_param_name:
+        warnings.append(u"Dùng đúng tên parameter đã truyền vào IN[3]: '%s'." % forced_param_name)
+    elif auto_name == TYPE_NAME_SENTINEL:
+        warnings.append(
+            u"Không tìm thấy Parameter chữ nào có nội dung — tự động dùng TÊN TYPE (Family Type Name) "
+            u"làm nguồn dữ liệu (khớp %d/%d phần tử khảo sát). Ghi ngược sẽ đổi tên Type tương ứng." % (
+                int(round((coverage or 0) * sample_n)), sample_n))
+    elif auto_name:
+        warnings.append(u"Tự động dò được parameter chữ: '%s' (khớp %d/%d phần tử khảo sát)."
+                         % (auto_name, int(round((coverage or 0) * sample_n)), sample_n))
+    else:
+        warnings.append(
+            u"⚠ KHÔNG tìm thấy bất kỳ Parameter/Type Name nào có nội dung chữ trên các phần tử đã chọn. "
+            u"Bảng sẽ mở với các ô trống — hãy kiểm tra lại family, hoặc truyền đúng tên parameter vào IN[3]."
+        )
+
     raw_formulas = {}
     param_name_by_elem = {}
     for r in range(n_rows):
@@ -1252,10 +1458,10 @@ def run(elements, schedule, forced_param_name, show_gui, row_tol, col_tol):
             if elem is None:
                 raw_formulas[(r, c)] = ""
                 continue
-            param, pname = find_text_parameter(elem, forced_param_name)
-            if pname:
-                param_name_by_elem[elem.Id.IntegerValue] = pname
-            text = read_cell_text(param)
+            source = find_text_source(elem, auto_name)
+            if source is not None:
+                param_name_by_elem[elem.Id.IntegerValue] = source.name
+            text = read_source_text(source)
             if (not text or text.strip() == "") and schedule_grid is not None:
                 if r < len(schedule_grid) and c < len(schedule_grid[r]):
                     text = schedule_grid[r][c]
@@ -1286,6 +1492,16 @@ def run(elements, schedule, forced_param_name, show_gui, row_tol, col_tol):
             "ElapsedMs": int((time.time() - t0) * 1000),
             "WriteMs": 0, "CellsPerSecond": 0,
         }
+
+    if auto_name is None and not forced_param_name:
+        try:
+            MessageBox.Show(
+                u"Không tìm thấy Parameter hoặc Type Name nào có nội dung chữ trên %d phần tử đã chọn.\n\n"
+                u"Bảng sẽ mở với các ô trống để bạn tự điền, hoặc bấm Hủy rồi truyền đúng tên parameter "
+                u"vào IN[3] của node Python Script." % len(flat_elements),
+                u"Không tìm thấy dữ liệu chữ", MessageBoxButtons.OK, MessageBoxIcon.Warning)
+        except Exception:
+            pass
 
     gui_result, cache = run_gui_wizard(doc, n_rows, n_cols, grid_elems, raw_formulas, param_name_by_elem, warnings)
 

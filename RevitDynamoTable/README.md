@@ -120,9 +120,22 @@ Mã lỗi hiển thị giống Excel: `#DIV/0!`, `#REF!`, `#VALUE!`, `#NAME?`,
   "natural breaks" (tìm bước nhảy khoảng-cách rõ rệt nhất) để tách hàng và
   cột — không cần bạn khai báo số hàng/cột, cũng không bị lệch khi view bị
   xoay.
-- **Đọc/ghi chữ trên annotation**: thử lần lượt danh sách tên parameter
-  thường gặp (`CANDIDATE_PARAM_NAMES` ở đầu file) hoặc dùng đúng tên bạn
-  truyền vào `IN[2]`.
+- **Tự dò nguồn dữ liệu chữ** (`detect_best_param_name`): KHÔNG đoán mù —
+  khảo sát thực tế trên chính các phần tử đã chọn để tìm nguồn chứa chữ
+  "ăn khớp" nhiều nhất:
+  1. Thử lần lượt `CANDIDATE_PARAM_NAMES` (ở đầu file), trên cả Instance
+     Parameter lẫn Type Parameter (Label trong family có thể bind vào 1
+     trong 2 loại).
+  2. Nếu không parameter nào có nội dung, tự chuyển sang dùng **TÊN
+     TYPE** (Family Type Name) — kỹ thuật phổ biến khi mỗi ô trong bảng
+     là 1 Family Type riêng, chữ "nằm" ngay ở tên Type chứ không phải 1
+     parameter.
+  3. Nếu vẫn không thấy gì, quét TOÀN BỘ parameter kiểu chữ đang có trên
+     các phần tử, chọn tên xuất hiện (có nội dung) nhiều nhất.
+  Luôn có thể ép dùng đúng 1 tên cụ thể qua `IN[3]`. Toàn bộ quá trình dò
+  được ghi vào `Warnings` (khớp bao nhiêu / bao nhiêu phần tử khảo sát),
+  và nếu không tìm thấy gì cả, GUI hiện hộp thoại cảnh báo trước khi mở
+  bảng thay vì âm thầm mở 1 bảng toàn ô trống.
 - **Đối chiếu Schedule**: dùng `ViewSchedule.GetTableData()` +
   `GetCellText(SectionType.Body, row, col)` — đúng API chuẩn của Revit.
 - **Formula Engine**: bộ phân tích công thức tự viết (tokenizer +
@@ -167,14 +180,17 @@ import file script):
 python3 RevitDynamoTable/tests/test_core_logic.py
 ```
 
-25/25 test hiện đang PASS, bao gồm: SUM/AVERAGE/PRODUCT/MIN/MAX/COUNT,
+34/34 test hiện đang PASS, bao gồm: SUM/AVERAGE/PRODUCT/MIN/MAX/COUNT,
 công thức lồng nhau, tham chiếu vòng (`#CYCLE!`), chia cho 0 (`#DIV/0!`),
-độ ưu tiên phép toán, và các trường hợp biên của thuật toán dò lưới
-(lưới sạch không nhiễu / chỉ 1 hàng có nhiễu số học nhỏ).
+độ ưu tiên phép toán, các trường hợp biên của thuật toán dò lưới (lưới
+sạch không nhiễu / chỉ 1 hàng có nhiễu số học nhỏ), và toàn bộ logic tự
+dò nguồn dữ liệu chữ (`detect_best_param_name`/`find_text_source`: ưu
+tiên Instance rồi Type Parameter, lùi về Type Name, rồi quét toàn bộ khi
+cần) bằng các phần tử giả lập.
 
-> **Lưu ý quan trọng**: phần tương tác trực tiếp với Revit API/WPF (đọc
-> parameter thật, mở cửa sổ GUI, ghi Transaction thật) **chưa được chạy
-> thử trên Revit/Dynamo thật** vì môi trường tạo mã này không có
+> **Lưu ý quan trọng**: phần tương tác trực tiếp với Revit API/WinForms
+> (đọc parameter thật, mở cửa sổ GUI, ghi Transaction thật) **chưa được
+> chạy thử trên Revit/Dynamo thật** vì môi trường tạo mã này không có
 > Revit/Dynamo cài sẵn. Hãy thử trước với **một bảng nhỏ**, kiểm tra kỹ
 > mục `Warnings` trong OUT, trước khi áp dụng cho bảng lớn/nhiều sheet.
 > Nếu gặp lỗi cụ thể trên máy bạn (tên parameter khác, dung sai gom lưới
@@ -242,6 +258,23 @@ nâng cấp lên PythonNet mới hơn (không còn giới hạn TypeBuilder này
 có thể cân nhắc quay lại WPF với event binding thật để có trải nghiệm
 tức thời hơn — nhưng bản hiện tại ưu tiên **chắc chắn chạy được** trên
 đúng môi trường bạn đang dùng.
+
+**Bảng mở được (không còn crash) nhưng dò ra quá nhiều hàng/cột và toàn
+bộ ô đều TRỐNG:** đây không phải lỗi, mà là dấu hiệu family đang dùng
+đang lưu chữ theo cách script chưa đoán trúng tên parameter — bản cũ chỉ
+thử 1 danh sách tên cố định (`CANDIDATE_PARAM_NAMES`), nếu family của bạn
+dùng tên khác thì mọi ô đều đọc ra rỗng. **Đã fix bằng
+`detect_best_param_name`** (mục 3): script giờ tự khảo sát THỰC TẾ trên
+chính các phần tử đã chọn — thử cả Instance lẫn Type Parameter, rồi lùi
+về TÊN TYPE (Family Type Name, rất phổ biến khi mỗi ô = 1 Type riêng),
+rồi cuối cùng quét toàn bộ parameter chữ đang có nếu vẫn chưa thấy gì.
+Nếu chạy lại vẫn còn ô trống, xem mục `Warnings` trong `OUT` — dòng đầu
+tiên cho biết chính xác đã dò ra tên gì và khớp bao nhiêu phần tử; nếu
+báo "KHÔNG tìm thấy" thì gửi lại đúng tên Parameter thật trên family của
+bạn (xem trong Revit: chọn 1 annotation → Properties) để truyền vào
+`IN[3]`. Số hàng/cột dò được cũng được ghi kèm dung sai đã dùng trong
+`Warnings`, kèm cảnh báo nếu tỉ lệ lấp đầy quá thấp (< 50%) — dấu hiệu
+dung sai gom cụm đang sai, có thể chỉnh qua `IN[4]`/`IN[5]`.
 
 ## 7. Tuỳ chỉnh nhanh
 

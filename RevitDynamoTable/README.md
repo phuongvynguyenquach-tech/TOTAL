@@ -115,12 +115,24 @@ Mã lỗi hiển thị giống Excel: `#DIV/0!`, `#REF!`, `#VALUE!`, `#NAME?`,
 
 ## 3. Cách hoạt động (tóm tắt kỹ thuật)
 
-- **Dò lưới bảng**: chiếu toạ độ từng annotation vào hệ trục 2D của view
+- **Hỗ trợ cả TextNote lẫn Generic Annotation FamilyInstance**, tự nhận
+  diện từng phần tử (`is_text_note`), có thể trộn lẫn trong cùng 1 lần
+  quét:
+  - **TextNote**: định vị bằng `elem.Coord` (điểm neo đặt chữ lúc tạo) —
+    KHÔNG dùng `Location.Point` hay tâm BoundingBox, vì cả 2 đều XÊ DỊCH
+    theo độ dài nội dung/canh lề (vd `"19.87"` hẹp hơn `"8,338.82"`), gây
+    ghép sai hàng/cột. Đọc/ghi trực tiếp qua `elem.Text` — không cần dò
+    Parameter nào cả.
+  - **Generic Annotation FamilyInstance**: định vị bằng `Location.Point`
+    (rồi lùi về tâm BoundingBox), đọc/ghi qua Parameter hoặc Tên Type
+    (xem `detect_best_param_name` bên dưới).
+- **Dò lưới bảng**: chiếu toạ độ từng phần tử vào hệ trục 2D của view
   (`RightDirection` / `UpDirection`), rồi gom cụm 1 chiều theo thuật toán
   "natural breaks" (tìm bước nhảy khoảng-cách rõ rệt nhất) để tách hàng và
   cột — không cần bạn khai báo số hàng/cột, cũng không bị lệch khi view bị
   xoay.
-- **Tự dò nguồn dữ liệu chữ** (`detect_best_param_name`): KHÔNG đoán mù —
+- **Tự dò nguồn dữ liệu chữ** (`detect_best_param_name`, chỉ áp dụng cho
+  phần tử KHÔNG PHẢI TextNote): KHÔNG đoán mù —
   khảo sát thực tế trên chính các phần tử đã chọn để tìm nguồn chứa chữ
   "ăn khớp" nhiều nhất:
   1. Thử lần lượt `CANDIDATE_PARAM_NAMES` (ở đầu file), trên cả Instance
@@ -180,13 +192,15 @@ import file script):
 python3 RevitDynamoTable/tests/test_core_logic.py
 ```
 
-34/34 test hiện đang PASS, bao gồm: SUM/AVERAGE/PRODUCT/MIN/MAX/COUNT,
+38/38 test hiện đang PASS, bao gồm: SUM/AVERAGE/PRODUCT/MIN/MAX/COUNT,
 công thức lồng nhau, tham chiếu vòng (`#CYCLE!`), chia cho 0 (`#DIV/0!`),
 độ ưu tiên phép toán, các trường hợp biên của thuật toán dò lưới (lưới
-sạch không nhiễu / chỉ 1 hàng có nhiễu số học nhỏ), và toàn bộ logic tự
-dò nguồn dữ liệu chữ (`detect_best_param_name`/`find_text_source`: ưu
-tiên Instance rồi Type Parameter, lùi về Type Name, rồi quét toàn bộ khi
-cần) bằng các phần tử giả lập.
+sạch không nhiễu / chỉ 1 hàng có nhiễu số học nhỏ), toàn bộ logic tự dò
+nguồn dữ liệu chữ (`detect_best_param_name`/`find_text_source`: ưu tiên
+Instance rồi Type Parameter, lùi về Type Name, rồi quét toàn bộ khi cần),
+và xử lý TextNote (`.Coord` luôn được ưu tiên tuyệt đối, đọc/ghi qua
+`.Text`, bỏ qua mọi tên parameter được truyền vào) bằng các phần tử giả
+lập.
 
 > **Lưu ý quan trọng**: phần tương tác trực tiếp với Revit API/WinForms
 > (đọc parameter thật, mở cửa sổ GUI, ghi Transaction thật) **chưa được
@@ -275,6 +289,22 @@ bạn (xem trong Revit: chọn 1 annotation → Properties) để truyền vào
 `IN[3]`. Số hàng/cột dò được cũng được ghi kèm dung sai đã dùng trong
 `Warnings`, kèm cảnh báo nếu tỉ lệ lấp đầy quá thấp (< 50%) — dấu hiệu
 dung sai gom cụm đang sai, có thể chỉnh qua `IN[4]`/`IN[5]`.
+
+**Bảng vẫn còn hầu hết ô trống dù đã fix ở trên — phần tử thật ra là
+TextNote, không phải Generic Annotation:** đối chiếu với 1 graph Dynamo
+khác của bạn (`AUTO CHỌN VÙNG TEXT TÍNH TỔNG SCHEDULE&TEXT.dyn`) xác nhận
+rõ: nhiều bảng của bạn dựng từ **`TextNote`** (chữ đặt tự do), không phải
+Family Instance. `TextNote` không có `Parameter` chứa nội dung — chữ nằm
+thẳng ở thuộc tính `.Text` — nên toàn bộ cơ chế dò Parameter/Type Name ở
+trên không áp dụng được và luôn ra rỗng cho loại phần tử này. Graph đó
+cũng chỉ ra 1 bug tinh vi khác: dùng tâm BoundingBox (hoặc Location.Point)
+để định vị TextNote bị XÊ DỊCH theo độ dài nội dung (`"19.87"` hẹp hơn
+`"8,338.82"`), khiến việc ghép hàng/cột bị sai ngay từ bước dò lưới.
+**Đã fix**: `is_text_note()` nhận diện TextNote và xử lý RIÊNG, ưu tiên
+tuyệt đối trên mọi phần tử khác — định vị bằng `elem.Coord` (điểm neo cố
+định lúc tạo chữ, không đổi theo nội dung), đọc/ghi thẳng qua `elem.Text`,
+bỏ qua hoàn toàn bước dò Parameter/Type Name (không cần thiết và không
+đúng cho TextNote). Cả 2 kiểu phần tử giờ dùng chung được 1 lần quét.
 
 ## 7. Tuỳ chỉnh nhanh
 

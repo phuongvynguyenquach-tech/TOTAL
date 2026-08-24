@@ -49,6 +49,7 @@ def _install_fake_revit_modules():
     db.BuiltInParameter = types.SimpleNamespace(ALL_MODEL_INSTANCE_COMMENTS=1)
     db.SectionType = types.SimpleNamespace(Body=0)
     db.StorageType = types.SimpleNamespace(String=1, Double=2, Integer=3, ElementId=4, none=0)
+    db.TextNote = type("TextNote", (object,), {})
 
     # RevitServices — cố tình để KHÔNG import được, script sẽ tự set
     # DYNAMO_ENV = False và dùng nhánh Transaction thường (đã có sẵn
@@ -314,6 +315,66 @@ class _FakeAnnotation(object):
 
     def get_Parameter(self, _bip):
         return self._params.get("Comments")
+
+
+class _FakeTextNoteElem(mod.TextNote):
+    """Giả lập Autodesk.Revit.DB.TextNote — subclass đúng lớp TextNote mà
+    script đã import, để isinstance(elem, TextNote)/is_text_note() nhận
+    diện đúng như trên Revit thật."""
+
+    def __init__(self, elem_id, text, coord, bbox_center=None, location_point=None):
+        self.Id = types.SimpleNamespace(IntegerValue=elem_id)
+        self.Text = text
+        self.Coord = coord
+        # location_point / bbox_center (nếu có) CỐ Ý đặt khác Coord, để
+        # test xác nhận .Coord luôn được ưu tiên tuyệt đối cho TextNote.
+        if location_point is not None:
+            self.Location = types.SimpleNamespace(Point=location_point)
+        self._bbox_center = bbox_center
+
+    def get_BoundingBox(self, _view):
+        if self._bbox_center is None:
+            return None
+        cx, cy = self._bbox_center
+        return types.SimpleNamespace(
+            Min=types.SimpleNamespace(X=cx - 1, Y=cy - 1, Z=0),
+            Max=types.SimpleNamespace(X=cx + 1, Y=cy + 1, Z=0),
+        )
+
+
+class TestTextNoteHandling(unittest.TestCase):
+    def test_is_text_note_true_for_textnote_false_for_other(self):
+        tn = _FakeTextNoteElem(1, u"300", coord="COORD")
+        other = _FakeAnnotation(2, params=[])
+        self.assertTrue(mod.is_text_note(tn))
+        self.assertFalse(mod.is_text_note(other))
+
+    def test_get_location_point_prefers_coord_over_location_and_bbox(self):
+        # location_point và bbox_center CỐ Ý khác Coord — phải luôn trả
+        # về đúng Coord (đây là bài học/lỗi thực tế đã fix: dùng
+        # Location.Point hay tâm BoundingBox cho TextNote gây ghép sai
+        # hàng/cột vì xê dịch theo độ dài nội dung).
+        tn = _FakeTextNoteElem(
+            1, u"300", coord="THE_COORD",
+            bbox_center=(999.0, 999.0), location_point="WRONG_LOCATION_POINT",
+        )
+        result = mod.get_location_point(tn, view=None)
+        self.assertEqual(result, "THE_COORD")
+
+    def test_find_text_source_reads_and_writes_dot_text(self):
+        tn = _FakeTextNoteElem(1, u"8,338.82", coord="C")
+        source = mod.find_text_source(tn)
+        self.assertIsNotNone(source)
+        self.assertEqual(source.kind, "TEXTNOTE")
+        self.assertEqual(mod.read_source_text(source), u"8,338.82")
+
+    def test_find_text_source_ignores_forced_name_for_textnote(self):
+        # TextNote không có Parameter nào cả — dù IN[3] truyền tên bất kỳ,
+        # vẫn phải đọc/ghi qua .Text, không được cố LookupParameter().
+        tn = _FakeTextNoteElem(1, u"42", coord="C")
+        source = mod.find_text_source(tn, forced_name="KhongTonTai")
+        self.assertEqual(source.kind, "TEXTNOTE")
+        self.assertEqual(mod.read_source_text(source), u"42")
 
 
 class TestFindTextSource(unittest.TestCase):

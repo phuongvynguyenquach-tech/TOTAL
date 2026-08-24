@@ -4,11 +4,18 @@
  SCAN GENERIC ANNOTATION TABLE  —  Dynamo Python Script (CPython3 engine)
 ================================================================================
 CHỨC NĂNG (những gì script này làm):
-  1. Nhận danh sách các Family Instance (Generic Annotation) đang được QUÉT
-     CHỌN (box-select) trong view Revit — chính là các ô chữ tạo thành bảng
-     "giống Excel" mà bạn đã dựng bằng family Generic Annotation (xem hình
-     minh hoạ: bảng "俩@_STR Framing" / "GROSS BUILDING").
-  2. Tự dò toạ độ của từng annotation để DỰNG LẠI cấu trúc bảng (hàng/cột)
+  1. Nhận danh sách các phần tử đang được QUÉT CHỌN (box-select) trong
+     view Revit — chính là các ô chữ tạo thành bảng "giống Excel" bạn đã
+     dựng trên view (xem hình minh hoạ: bảng "俩@_STR Framing" /
+     "GROSS BUILDING"). Hỗ trợ CẢ 2 kiểu phần tử, tự nhận diện, có thể
+     trộn lẫn trong cùng 1 lần quét:
+       - TextNote (chữ đặt tự do trên view) — đọc/ghi trực tiếp qua
+         .Text, định vị bằng .Coord (điểm neo lúc tạo chữ — KHÔNG dùng
+         tâm BoundingBox hay Location.Point vì cả 2 đều xê dịch theo độ
+         dài nội dung, gây ghép sai hàng/cột).
+       - Generic Annotation FamilyInstance — đọc/ghi qua Parameter (tự
+         dò tên) hoặc qua Tên Type nếu family lưu chữ kiểu đó (mục 3).
+  2. Tự dò toạ độ của từng phần tử để DỰNG LẠI cấu trúc bảng (hàng/cột)
      y hệt bố cục hình học trên view — không cần bạn khai báo số hàng/cột.
   3. Đọc nội dung chữ đã điền sẵn trên từng ô (dữ liệu bạn đã điền từ
      Schedule / Text trước đó) để nạp vào lưới dữ liệu ban đầu.
@@ -94,6 +101,22 @@ try:
     from Autodesk.Revit.DB import SectionType
 except Exception:
     SectionType = None
+
+try:
+    from Autodesk.Revit.DB import TextNote
+except Exception:
+    TextNote = None
+
+
+def is_text_note(elem):
+    """True nếu elem là Autodesk.Revit.DB.TextNote — kiểm tra an toàn kể
+    cả khi TextNote không import được (vd đang chạy ngoài Revit)."""
+    if TextNote is None:
+        return False
+    try:
+        return isinstance(elem, TextNote)
+    except Exception:
+        return False
 
 # RevitServices chỉ tồn tại khi chạy trong Dynamo (không có khi chạy
 # ngoài, vd RevitPythonShell/pyRevit) -> có fallback ở phần Transaction.
@@ -193,8 +216,24 @@ THEME = {
 # 2. TIỆN ÍCH HÌNH HỌC — DÒ TÌM LƯỚI BẢNG (GRID DETECTION)
 # ------------------------------------------------------------------------
 def get_location_point(elem, view):
-    """Lấy toạ độ đại diện của 1 annotation: ưu tiên LocationPoint,
-    nếu không có thì lấy tâm BoundingBox theo view hiện tại."""
+    """Lấy toạ độ đại diện của 1 annotation.
+
+    QUAN TRỌNG với TextNote: dùng elem.Coord (điểm neo đặt chữ lúc tạo),
+    KHÔNG dùng Location.Point hay tâm BoundingBox — cả 2 đều có thể XÊ
+    DỊCH theo độ dài nội dung / kiểu canh lề của text (vd "19.87" hẹp hơn
+    "2,158.40" hay "8,338.82"), gây ghép sai hàng/cột. Đây là nguyên nhân
+    gốc đã được xác nhận qua thực tế (và đã fix) trên 1 công cụ Dynamo
+    khác của bạn — áp dụng lại đúng bài học đó ở đây.
+
+    Với các loại phần tử khác (vd Generic Annotation FamilyInstance):
+    ưu tiên LocationPoint, không có thì lấy tâm BoundingBox theo view."""
+    if is_text_note(elem):
+        try:
+            c = elem.Coord
+            if c is not None:
+                return c
+        except Exception:
+            pass
     try:
         loc = elem.Location
         if loc is not None and hasattr(loc, "Point") and loc.Point is not None:
@@ -431,7 +470,13 @@ def _lookup_param_instance_or_type(elem, name):
 
 
 def find_text_source(elem, forced_name=None):
-    """Trả về CellSource đầu tiên phù hợp để đọc/ghi chữ cho 1 annotation."""
+    """Trả về CellSource đầu tiên phù hợp để đọc/ghi chữ cho 1 annotation.
+
+    TextNote LUÔN được ưu tiên xử lý riêng qua thuộc tính .Text (chữ hiển
+    thị chính là 1 property đơn giản, không nằm trong Parameter nào cả —
+    dò theo CANDIDATE_PARAM_NAMES trên TextNote sẽ luôn ra rỗng)."""
+    if is_text_note(elem):
+        return CellSource("TEXTNOTE", elem, u"TextNote.Text")
     if forced_name == TYPE_NAME_SENTINEL:
         try:
             sym = elem.Symbol
@@ -462,6 +507,12 @@ def find_text_source(elem, forced_name=None):
 def read_source_text(source):
     if source is None:
         return ""
+    if source.kind == "TEXTNOTE":
+        try:
+            v = source.ref.Text
+            return v if v is not None else ""
+        except Exception:
+            return ""
     if source.kind == "PARAM":
         return read_cell_text(source.ref)
     if source.kind == "TYPE_NAME":
@@ -1357,7 +1408,9 @@ def write_back(doc_, grid_elems, raw_formulas, engine_cache, param_name_by_elem,
             st = SubTransaction(doc_)
             st.Start()
             try:
-                if source.kind == "TYPE_NAME":
+                if source.kind == "TEXTNOTE":
+                    source.ref.Text = new_text
+                elif source.kind == "TYPE_NAME":
                     source.ref.Name = new_text
                 else:
                     param = source.ref
@@ -1431,24 +1484,37 @@ def run(elements, schedule, forced_param_name, show_gui, row_tol, col_tol):
 
     # ----- Tự động dò nguồn dữ liệu chữ TỐT NHẤT dựa trên khảo sát thực
     # tế các phần tử đã chọn (không đoán mù) — xem detect_best_param_name.
+    # TextNote LUÔN đọc/ghi thẳng qua .Text (không cần dò Parameter) nên
+    # được loại khỏi khảo sát này — chỉ khảo sát các phần tử KHÔNG PHẢI
+    # TextNote (vd Generic Annotation FamilyInstance).
     flat_elements = [grid_elems[r][c] for r in range(n_rows) for c in range(n_cols)
                       if grid_elems[r][c] is not None]
-    auto_name, coverage, sample_n = detect_best_param_name(flat_elements, forced_param_name)
-    if forced_param_name:
-        warnings.append(u"Dùng đúng tên parameter đã truyền vào IN[3]: '%s'." % forced_param_name)
-    elif auto_name == TYPE_NAME_SENTINEL:
-        warnings.append(
-            u"Không tìm thấy Parameter chữ nào có nội dung — tự động dùng TÊN TYPE (Family Type Name) "
-            u"làm nguồn dữ liệu (khớp %d/%d phần tử khảo sát). Ghi ngược sẽ đổi tên Type tương ứng." % (
-                int(round((coverage or 0) * sample_n)), sample_n))
-    elif auto_name:
-        warnings.append(u"Tự động dò được parameter chữ: '%s' (khớp %d/%d phần tử khảo sát)."
-                         % (auto_name, int(round((coverage or 0) * sample_n)), sample_n))
+    n_textnote = sum(1 for e in flat_elements if is_text_note(e))
+    non_textnote_elements = [e for e in flat_elements if not is_text_note(e)]
+    if n_textnote:
+        warnings.append(u"Có %d/%d phần tử là TextNote — đọc/ghi trực tiếp qua .Text (đúng chuẩn, không cần dò Parameter)."
+                         % (n_textnote, len(flat_elements)))
+
+    if non_textnote_elements:
+        auto_name, coverage, sample_n = detect_best_param_name(non_textnote_elements, forced_param_name)
+        if forced_param_name:
+            warnings.append(u"Dùng đúng tên parameter đã truyền vào IN[3]: '%s'." % forced_param_name)
+        elif auto_name == TYPE_NAME_SENTINEL:
+            warnings.append(
+                u"Không tìm thấy Parameter chữ nào có nội dung trên các phần tử không phải TextNote — tự động "
+                u"dùng TÊN TYPE (Family Type Name) làm nguồn dữ liệu (khớp %d/%d phần tử khảo sát). Ghi ngược "
+                u"sẽ đổi tên Type tương ứng." % (int(round((coverage or 0) * sample_n)), sample_n))
+        elif auto_name:
+            warnings.append(u"Tự động dò được parameter chữ: '%s' (khớp %d/%d phần tử khảo sát)."
+                             % (auto_name, int(round((coverage or 0) * sample_n)), sample_n))
+        else:
+            warnings.append(
+                u"⚠ KHÔNG tìm thấy bất kỳ Parameter/Type Name nào có nội dung chữ trên %d phần tử không phải "
+                u"TextNote đã chọn. Các ô đó sẽ mở trống — hãy kiểm tra lại family, hoặc truyền đúng tên "
+                u"parameter vào IN[3]." % len(non_textnote_elements)
+            )
     else:
-        warnings.append(
-            u"⚠ KHÔNG tìm thấy bất kỳ Parameter/Type Name nào có nội dung chữ trên các phần tử đã chọn. "
-            u"Bảng sẽ mở với các ô trống — hãy kiểm tra lại family, hoặc truyền đúng tên parameter vào IN[3]."
-        )
+        auto_name = forced_param_name
 
     raw_formulas = {}
     param_name_by_elem = {}
@@ -1493,12 +1559,12 @@ def run(elements, schedule, forced_param_name, show_gui, row_tol, col_tol):
             "WriteMs": 0, "CellsPerSecond": 0,
         }
 
-    if auto_name is None and not forced_param_name:
+    if non_textnote_elements and auto_name is None and not forced_param_name:
         try:
             MessageBox.Show(
-                u"Không tìm thấy Parameter hoặc Type Name nào có nội dung chữ trên %d phần tử đã chọn.\n\n"
-                u"Bảng sẽ mở với các ô trống để bạn tự điền, hoặc bấm Hủy rồi truyền đúng tên parameter "
-                u"vào IN[3] của node Python Script." % len(flat_elements),
+                u"Không tìm thấy Parameter hoặc Type Name nào có nội dung chữ trên %d phần tử không phải "
+                u"TextNote đã chọn.\n\nCác ô đó sẽ mở trống để bạn tự điền, hoặc bấm Hủy rồi truyền đúng tên "
+                u"parameter vào IN[3] của node Python Script." % len(non_textnote_elements),
                 u"Không tìm thấy dữ liệu chữ", MessageBoxButtons.OK, MessageBoxIcon.Warning)
         except Exception:
             pass

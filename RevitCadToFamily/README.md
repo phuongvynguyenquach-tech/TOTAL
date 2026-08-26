@@ -13,6 +13,15 @@ trái / phải**, tự suy ra **Dài × Rộng × Cao**, tự đoán **danh mụ
 rồi dựng ra family có **khối 3D + nét vẽ lại đúng theo CAD trên từng hình
 chiếu + tham số kéo giãn + tham số công thức**.
 
+Bốn việc "khó" mà công cụ này làm được:
+
+| | |
+|---|---|
+| **1 file → nhiều family** | File CAD vẽ cả dãy 8 cái tủ, 5 bộ bếp, hay cả trang ký hiệu đồ đạc → script tách ra **đúng số lượng sản phẩm**, mỗi cái 1 family riêng đúng kích thước của nó |
+| **Thiếu hình chiếu thì tự suy ra** | Chỉ có mặt đứng → tự dựng mặt bằng (kèm ký hiệu cánh mở) và mặt bên. Chỉ có mặt bằng → tự dựng 2 mặt đứng. Theo đúng phép chiếu vuông góc |
+| **Family con lồng vào family mẹ** | Tủ 4 cánh → 4 khoang thành family con, lồng vào family mẹ, **ràng buộc tham số**: kéo `Dài` của mẹ là cả dãy khoang giãn đều theo |
+| **Đặt đúng vị trí CAD** | Tuỳ chọn đặt luôn family vào project **đúng toạ độ nó nằm trên bản CAD** |
+
 File chính: [`CadToFamilyBatch.py`](CadToFamilyBatch.py)
 
 ---
@@ -34,6 +43,7 @@ File chính: [`CadToFamilyBatch.py`](CadToFamilyBatch.py)
    | `IN[4]` | **String** — thư mục chứa Family Template `.rft`. Để trống = tự dò `C:\ProgramData\Autodesk\RVT xxxx\Family Templates` | Không |
    | `IN[5]` | **Boolean** — `True` = nạp luôn family vừa tạo vào project đang mở. Mặc định `False` | Không |
    | `IN[6]` | (Nâng cao) **Boolean** — `True` = chạy thẳng, KHÔNG mở GUI. Mặc định `False` | Không |
+   | `IN[7]` | **Boolean** — `True` = nạp family vào project **và đặt đúng toạ độ trên bản CAD**. Mặc định `False` | Không |
 
 5. Chạy node → cửa sổ GUI hiện ra.
 
@@ -64,11 +74,29 @@ Select Model Elements ──► IN[0]
    danh mục, Dài/Rộng/Cao, các hình chiếu nhận ra được và lý do nhận ra.
 3. **Sửa trực tiếp trên lưới** những gì bạn muốn: tên family, danh mục,
    chế độ dựng khối, Dài/Rộng/Cao. Bỏ tick cột **✔** để không tạo dòng đó.
+   Cột **HÌNH CHIẾU** có dấu `*` nghĩa là hình chiếu đó do script *tự suy
+   ra*; cột **KHOANG** cho biết sản phẩm sẽ được chia thành mấy family con.
    Muốn sửa nhiều dòng cùng lúc: bôi chọn các dòng → chọn Danh mục / Chế độ
    / Cao ở thanh dưới → bấm **⚙ Áp dụng cho dòng đang chọn**.
 4. Chọn **📁 thư mục xuất `.rfa`**.
 5. Bấm **▶ TẠO FAMILY HÀNG LOẠT** → xác nhận → xong, hộp thoại báo số
-   family đã tạo, số lỗi và **tốc độ thật đo được (family/giây)**.
+   family đã tạo, số family con đã lồng, số lỗi và **tốc độ thật đo được
+   (family/giây)**.
+
+### Các tuỳ chọn trên GUI
+
+| Tuỳ chọn | Mặc định | Ý nghĩa |
+|----------|----------|---------|
+| Thư mục con | tắt | Quét cả cây thư mục |
+| Gộp file cùng tên | bật | `TỦ_MB.dwg` + `TỦ_MĐ.dwg` → 1 family |
+| TURBO | tắt | Giản lược nét, chạy nhanh hơn |
+| Tham số Instance | bật | `Dài/Rộng/Cao` là tham số Instance (tắt = Type) |
+| Vẽ mặt sau/phải | bật | Vẽ thêm nét mặt sau & mặt phải bằng Model Line |
+| Nạp vào project | tắt | Nạp `.rfa` vào project đang mở |
+| **Tách nhiều sản phẩm / 1 file** | **bật** | 1 file CAD nhiều sản phẩm → nhiều family |
+| **Tự suy hình chiếu thiếu** | **bật** | Dựng nốt mặt bằng / mặt đứng / mặt bên còn thiếu |
+| **Family con lồng nhau** | **bật** | Mỗi khoang thành 1 family con lồng vào family mẹ |
+| **Đặt đúng vị trí CAD** | tắt | Đặt family vào project đúng toạ độ trên bản CAD |
 
 ---
 
@@ -86,6 +114,109 @@ Select Model Elements ──► IN[0]
 | **Kích thước** | Dài × Rộng lấy từ khung bao mặt bằng, Cao lấy từ khung bao mặt đứng. Thiếu dữ liệu thì lấy mặc định theo danh mục (`DEFAULT_DIMS`) |
 | **Danh mục** | Từ khoá tiếng Việt (có dấu / không dấu) + tiếng Anh trong tên file, tên layer và chữ trong bản vẽ: `LAVABO/CHẬU RỬA/WC` → Plumbing Fixtures, `CỬA ĐI` → Doors, `CỬA SỔ` → Windows, `TỦ/KỆ/BÀN ĐÁ` → Casework, `BÀN/GHẾ/GIƯỜNG` → Furniture, `ĐÈN` → Lighting Fixtures… |
 | **Bỏ nét rác** | Layer kích thước / ghi chú / khung tên / trục / hatch bị loại khỏi phần vẽ lại (nhưng CHỮ vẫn được đọc để nhận diện hình chiếu) |
+
+### Tách nhiều sản phẩm trong cùng 1 file CAD
+
+Bản vẽ thư viện thường xếp cả loạt sản phẩm cạnh nhau. Script gom hình
+chiếu về đúng sản phẩm của nó bằng **2 luật loại trừ nhau**:
+
+**Luật 1 — xếp chồng dọc** (bố cục "dãy tủ áo"): mặt bằng nằm ngay dưới mặt
+đứng của chính nó. Điều kiện: 2 cụm chồng nhau theo phương ngang ≥ 60%,
+**một bên phải giống mặt bằng và bên kia giống mặt đứng**, cụm mặt bằng
+thấp hơn, khe hở dọc đủ nhỏ. Mỗi cụm chỉ ghép 1 lần.
+
+```
+   ┌────────┐  ┌──────────┐  ┌────┐        mỗi cột = 1 sản phẩm
+   │ MĐ tủ1 │  │  MĐ tủ2  │  │MĐ3 │        (mặt đứng + mặt bằng của nó)
+   └────────┘  └──────────┘  └────┘
+   ┌────────┐  ┌──────────┐  ┌────┐
+   │ MB tủ1 │  │  MB tủ2  │  │MB3 │  ← có cung quét cánh → nhận ra là mặt bằng
+   └────────┘  └──────────┘  └────┘
+```
+
+**Luật 2 — cùng hàng ngang** (bố cục "bản vẽ bếp", không có mặt bằng):
+trong 1 dải ngang, cụm **rộng nhất** là mặt đứng chính; cụm **cùng chiều
+cao, hẹp hơn hẳn, đứng sát bên cạnh** là mặt bên của nó.
+
+```
+   ┌──┐  ┌──────────────────┐  ┌──┐     3 cụm này = 1 sản phẩm
+   │MB│  │   MẶT ĐỨNG CHÍNH │  │MP│     (mặt bên trái + chính + phải)
+   └──┘  └──────────────────┘  └──┘
+```
+
+Luật 2 **không áp dụng** cho cụm đã có mặt bằng riêng ở luật 1 — nếu không,
+cả dãy 8 cái tủ sẽ bị gộp nhầm thành 1 sản phẩm. Và **không gộp 2 cụm cùng
+là mặt bằng** — nên cả trang ký hiệu đồ đạc thì mỗi ký hiệu là 1 sản phẩm.
+
+Nhận biết mặt bằng hay mặt đứng bằng **điểm `plan_likeness`**:
+
+| Dấu hiệu | Điểm |
+|----------|------|
+| Cung quét cánh cửa (cung ~90°) | **+2** mỗi cái (tối đa 4) |
+| Biên dạng kín nhỏ (chậu, thiết bị, lỗ khoét) | **+0.8** mỗi cái (tối đa 6) |
+| Hình thấp hơn hẳn các hình cùng bản vẽ | **+0.6** |
+| Đường chéo dài ký hiệu cánh mở | **−2** mỗi cái (tối đa 4) |
+| Chữ ghi chú "MẶT BẰNG" / "MẶT ĐỨNG" | **±10** (quyết định luôn) |
+
+> **Đo đúng kích thước tủ, không đo cả cung quét cánh.** Mặt bằng tủ luôn có
+> cung quét cánh vẽ thòi ra ngoài. Script đo theo **biên dạng kín lớn nhất**
+> (đường bao vật thể) chứ không theo khung bao toàn cụm — nếu không, tủ sâu
+> 600 sẽ bị đo thành 1200.
+
+### Tự suy ra hình chiếu còn thiếu
+
+Chỉ có mặt đứng mà thiếu mặt bằng (hoặc ngược lại) thì script dựng nốt hình
+còn thiếu theo đúng **hình học hoạ hình**: 3 hình chiếu dùng chung từng cặp
+trục toạ độ, nên đường chia của hình này chiếu thẳng sang hình kia.
+
+```
+   MẶT BẰNG cho (x, y)      MẶT ĐỨNG cho (x, z)      MẶT BÊN cho (y, z)
+
+   vách đứng trên MẶT ĐỨNG  (toạ độ x) ──────► vách đứng trên MẶT BẰNG
+   mặt kệ  trên MẶT ĐỨNG    (toạ độ z) ──────► đường ngang trên MẶT BÊN
+   vách sâu trên MẶT BẰNG   (toạ độ y) ──────► vách đứng trên MẶT BÊN
+```
+
+Mặt bằng tự suy còn được vẽ thêm **ký hiệu cánh mở** (nét cánh ở vị trí mở +
+cung quét 90°, khoang rộng thì tách 2 cánh mở 2 phía) đúng như cách vẽ trên
+bản CAD. Hình chiếu tự suy được đánh dấu `*` trên GUI và **không bao giờ
+được dùng để đo kích thước** — kích thước chỉ lấy từ nét CAD thật.
+
+### Family con lồng vào family mẹ
+
+Sản phẩm chia được thành nhiều **khoang** (đọc từ các vách đứng chạy suốt
+chiều cao trên mặt đứng) thì mỗi khoang thành 1 **family con**:
+
+- Family con là **hộp tham số hoàn toàn**: `Dài`/`Rộng`/`Cao` là tham số
+  **Instance**, các mặt khoá vào Reference Plane → co giãn 100%. Kèm nét CAD
+  của đúng khoang đó vẽ trên mặt đứng.
+- **Khoang trùng kích thước dùng chung 1 family con** — tủ 4 cánh bằng nhau
+  chỉ tốn 1 family con thay vì 4.
+- Lồng vào family mẹ **có ràng buộc đầy đủ**:
+
+  | Ràng buộc | Cách làm |
+  |-----------|----------|
+  | Chiều cao | `Cao` của con ← liên kết thẳng vào `Cao` của mẹ |
+  | Chiều sâu | `Rộng` của con ← liên kết thẳng vào `Rộng` của mẹ |
+  | Bề rộng khoang | khoang đều nhau → `Dài` của con ← tham số `Rộng khoang` = công thức `Dài / n` |
+  | Vị trí khoang | mỗi khoang 1 Reference Plane, gắn nhãn tham số `Vị trí khoang i` = công thức `Dài × k`, rồi **Align + Lock** mặt phẳng tâm của instance vào plane đó |
+
+  Kết quả: **kéo `Dài` của family mẹ là cả dãy khoang tự giãn đều theo**.
+
+- Đã lồng family con thì family mẹ **không dựng thêm khối bao** nữa (tránh 2
+  lớp khối chồng nhau). Muốn giữ thì đặt `parent_solid_with_nesting = True`.
+- Family con được lưu trong thư mục con **`_FAMILY_CON`** cạnh thư mục xuất.
+
+### Đặt vào project đúng vị trí trên CAD
+
+Tick **"Đặt đúng vị trí CAD"** (hoặc `IN[7] = True`): sau khi tạo xong,
+family được nạp vào project đang mở và đặt **đúng toạ độ nó nằm trên bản vẽ
+CAD**. Quét 1 file mặt bằng đầy ký hiệu đồ đạc là ra ngay cả một mặt bằng
+Revit đúng chỗ.
+
+> Toạ độ lấy theo **hệ toạ độ gốc của file CAD**. Muốn khớp tuyệt đối, hãy
+> link CAD vào Revit theo kiểu *Origin to Origin* (hoặc kiểm tra lại 1 cái
+> rồi move cả nhóm).
 
 ### Gộp nhiều file thành 1 family
 
@@ -147,6 +278,14 @@ cùng tên"* nếu muốn mỗi file 1 family.
    phải ở `x = +Dài/2`), nằm trong subcategory riêng. Bỏ tick *"Vẽ mặt
    sau/phải"* nếu bạn thấy rối.
 
+3. **Việc gom sản phẩm là suy luận, không phải phép màu.** Hai luật ở trên
+   xử lý đúng các bố cục bản vẽ thường gặp, nhưng bản vẽ xếp bất thường
+   (mặt bằng của tủ này nằm dưới mặt đứng của tủ kia, các hình chiếu cách
+   nhau quá xa/quá gần) vẫn có thể bị gom sai. Vì vậy **kết quả luôn hiện
+   ra lưới cho bạn duyệt trước khi tạo** — thấy sai thì sửa Dài/Rộng/Cao,
+   bỏ tick dòng thừa, hoặc tắt "Tách nhiều sản phẩm / 1 file" rồi tự tách
+   file CAD ra.
+
 > Khi bạn sửa `Dài`/`Rộng`/`Cao` trên lưới, nét CAD được **co giãn theo cho
 > khớp đúng tham số** (`FIT_CAD_TO_PARAMS`), nên family luôn đúng bằng con
 > số bạn đặt, không lệch so với bản vẽ gốc.
@@ -185,6 +324,9 @@ bản vẽ nhiều chục nghìn nét thì chậm hơn. Hãy đọc con số đo
   "Failed":         1,
   "Files":          [".../LAVABO BỘ 3.rfa", ...],
   "Loaded":         0,           # số family đã nạp vào project (nếu bật)
+  "Placed":         0,           # số family đã đặt đúng vị trí CAD
+  "ChildFamilies":  3,           # số family con đã dựng
+  "Nested":         12,          # số lần family con được lồng vào family mẹ
   "Report":         [[...], ...],# bảng tóm tắt từng dòng
   "Warnings":       [...],       # cảnh báo/lỗi chi tiết theo từng family
   "BuildMs":        8450,        # thời gian THỰC dựng family (không tính lúc mở GUI)
@@ -208,11 +350,20 @@ kiểm thử tự động chạy được **ngoài Revit**:
 python3 RevitCadToFamily/tests/test_cad_family_core.py
 ```
 
-Bộ test dựng sẵn 1 bản vẽ DXF mẫu đúng như ảnh hướng dẫn (bàn lavabo
-1500×500 có 3 chậu tròn đặt bằng block + mặt đứng 1500×800) và kiểm tra
-script phải nhận ra đúng 2 hình chiếu, đúng 3 lỗ chậu, đúng
-`Dài 1500 / Rộng 500 / Cao 800`, đúng danh mục *Plumbing Fixtures* — kể cả
-khi **xoá hết chữ ghi chú** (khi đó phải suy ra bằng hình học).
+Bộ test dựng sẵn các bản vẽ DXF mẫu **đúng như 3 ảnh hướng dẫn** và kiểm
+tra kết quả:
+
+| Bản vẽ mẫu | Phải ra |
+|------------|---------|
+| Bàn lavabo 1500×500 có 3 chậu tròn (block) + mặt đứng 1500×800 | 2 hình chiếu, 3 lỗ chậu, `1500/500/800`, danh mục *Plumbing Fixtures* — **kể cả khi xoá hết chữ ghi chú** |
+| Dãy 3 cái tủ áo, mỗi cái có mặt đứng ở trên + mặt bằng có cung quét cánh ở dưới | **3 family riêng**, mỗi cái `1200/600/2400` (cung quét cánh **không** được tính vào chiều sâu), 2 khoang đều nhau, mặt bên **tự suy ra** |
+| Bản vẽ bếp chỉ có mặt đứng chính + 2 mặt bên, **không có mặt bằng** | **1 sản phẩm**, mặt bằng **tự suy ra**, `Rộng` lấy đúng từ bề ngang mặt bên, 4 khoang |
+| Mặt đứng có 2 mặt kệ ngang | 2 mặt kệ đó phải xuất hiện **đúng cao độ** trên mặt bên tự suy |
+
+Trong quá trình phát triển, chính bộ test này đã bắt được 4 lỗi thật đã
+được sửa: nhận nhầm "CỬA SỔ" thành cửa đi; đọc `1200,5` thành `12005`; vị
+trí vách bị "hít" về bội số dung sai (vách 600 mm trả về 576 mm); và **khe
+hở nhỏ hơn 1 ô lưới làm mặt bằng dính vào mặt đứng** khi gom cụm.
 
 ---
 
@@ -230,6 +381,9 @@ khi **xoá hết chữ ghi chú** (khi đó phải suy ra bằng hình học).
 | `NOISE_LAYER_KEYWORDS` | Layer bị coi là rác, không vẽ lại |
 | `FORMULA_PARAMS` | Danh sách tham số công thức tự thêm vào family |
 | `P_LEN / P_WID / P_HGT` | Tên 3 tham số chính (`Dài`/`Rộng`/`Cao`) |
+| `MAX_NESTED_PARTS` | Trần số family con lồng vào 1 family mẹ (mặc định 12) |
+| `PLAN_SCORE_MIN` | Ngưỡng điểm để coi 1 cụm là mặt bằng |
+| `SWING_CATEGORIES` | Các danh mục được vẽ thêm ký hiệu cánh mở khi tự suy mặt bằng |
 
 ---
 

@@ -4,7 +4,7 @@
  CAD → REVIT FAMILY BATCH  —  Dynamo Python Script (CPython3 engine)
  Tự tạo HÀNG LOẠT Family Revit (.rfa) từ file CAD (DWG/DXF)
 ================================================================================
-CHỨC NĂNG (đúng những gì bạn yêu cầu trong 2 ảnh hướng dẫn):
+CHỨC NĂNG (đúng những gì bạn yêu cầu trong các ảnh hướng dẫn):
 
   1. NHẬN ĐẦU VÀO theo 3 cách, trộn lẫn thoải mái:
        a) DÁN ĐƯỜNG DẪN 1 FILE CAD  (vd D:\\OUT\\REVIT\\FAMILY\\260825.dwg)
@@ -32,6 +32,30 @@ CHỨC NĂNG (đúng những gì bạn yêu cầu trong 2 ảnh hướng dẫn):
          Windows, LAVABO/CHẬU RỬA/WC→Plumbing Fixtures, TỦ/KỆ/BÀN ĐÁ→
          Casework, BÀN/GHẾ/GIƯỜNG→Furniture, ĐÈN→Lighting Fixtures...
 
+  2b. TÁCH NHIỀU SẢN PHẨM TRONG CÙNG 1 FILE CAD:
+       1 file CAD thường vẽ CẢ DÃY sản phẩm (8 cái tủ áo, 5 bộ bếp, cả
+       trang ký hiệu đồ đạc trên mặt bằng). Script gom các hình chiếu về
+       ĐÚNG SẢN PHẨM của nó rồi tạo ra ĐỦ SỐ LƯỢNG family tương ứng:
+         - Luật xếp chồng dọc: mặt bằng nằm ngay dưới mặt đứng của chính
+           nó (chồng ngang ≥ 60%, một bên là mặt bằng một bên là mặt đứng,
+           khe hở đủ nhỏ) -> cùng 1 sản phẩm.
+         - Luật cùng hàng ngang: trong 1 dải ngang, hình RỘNG NHẤT là mặt
+           đứng chính; hình CÙNG CHIỀU CAO, HẸP HƠN HẲN, ĐỨNG SÁT bên
+           cạnh là mặt bên của nó.
+         - Hai luật cố tình loại trừ nhau, nên cả dãy tủ không bị gộp
+           nhầm thành 1 sản phẩm, còn dãy ký hiệu trên mặt bằng thì mỗi ký
+           hiệu là 1 sản phẩm riêng.
+
+  2c. TỰ SUY RA HÌNH CHIẾU CÒN THIẾU (phép chiếu vuông góc):
+       Chỉ có mặt đứng mà thiếu mặt bằng (hoặc ngược lại) thì script DỰNG
+       NỐT hình còn thiếu theo đúng hình học hoạ hình:
+           MẶT BẰNG cho (x, y) — MẶT ĐỨNG cho (x, z) — MẶT BÊN cho (y, z)
+         - vách đứng trên MẶT ĐỨNG (toạ độ x) -> vách trên MẶT BẰNG
+         - mặt kệ trên MẶT ĐỨNG   (toạ độ z) -> đường ngang trên MẶT BÊN
+         - vách chiều sâu trên MẶT BẰNG (toạ độ y) -> vách trên MẶT BÊN
+       Mặt bằng tự suy còn được vẽ thêm KÝ HIỆU CÁNH MỞ (nét cánh + cung
+       quét 90°) đúng như cách vẽ trên bản CAD.
+
   3. TẠO FAMILY .rfa CHUẨN, ĐẦY ĐỦ CÁC MẶT:
        - Khối 3D (Extrusion) dựng từ biên dạng kín của MẶT BẰNG (lỗ bên
          trong tự thành lỗ rỗng), cao đúng theo mặt đứng.
@@ -45,10 +69,30 @@ CHỨC NĂNG (đúng những gì bạn yêu cầu trong 2 ảnh hướng dẫn):
        - THAM SỐ THUẬT TOÁN (công thức): "Diện tích mặt bàn" = Dài*Rộng,
          "Nửa Dài" = Dài/2, "Cao lắp đặt" = Cao - Dày mặt... (bảng công
          thức khai báo ở CONFIG, bạn thêm bớt thoải mái).
-       - Tham số nhận dạng: "Mã hiệu", "Nguồn CAD", "Người tạo", "Ngày tạo".
+       - Tham số nhận dạng: "Mã hiệu", "Nguồn CAD", "Ngày tạo".
+
+  3b. FAMILY CON LỒNG VÀO FAMILY MẸ (nested family):
+       Sản phẩm chia được thành nhiều KHOANG (tủ nhiều cánh, bếp nhiều
+       module) thì mỗi khoang thành 1 FAMILY CON riêng:
+         - Family con là hộp THAM SỐ HOÀN TOÀN (Dài/Rộng/Cao là tham số
+           Instance, các mặt khoá vào Reference Plane -> co giãn 100%),
+           kèm nét CAD của đúng khoang đó vẽ trên mặt đứng.
+         - Các khoang TRÙNG KÍCH THƯỚC dùng chung 1 family con (tủ 4 cánh
+           bằng nhau chỉ tốn 1 family con thay vì 4 -> nhanh hơn hẳn).
+         - Lồng vào family mẹ có RÀNG BUỘC ĐẦY ĐỦ: Cao/Rộng của con liên
+           kết thẳng vào Cao/Rộng của mẹ; khoang đều nhau thì Dài của con
+           = công thức "Dài / n" của mẹ; vị trí mỗi khoang khoá vào 1
+           Reference Plane đặt theo công thức "Dài × k" — kéo tham số của
+           mẹ là cả dãy khoang giãn đều theo.
+
+  3c. ĐẶT VÀO PROJECT ĐÚNG VỊ TRÍ TRÊN CAD:
+       Bật tuỳ chọn "Đặt đúng vị trí CAD" thì sau khi tạo xong, family
+       được nạp vào project đang mở và đặt ĐÚNG TOẠ ĐỘ mà nó nằm trên bản
+       vẽ CAD — quét 1 file mặt bằng đầy ký hiệu đồ đạc là ra ngay cả một
+       mặt bằng Revit đúng chỗ.
 
   4. GIAO DIỆN GUI SANG TRỌNG (WinForms, theme tối – vàng đồng), dạng
-     bảng Excel: mỗi dòng là 1 file CAD → 1 family. Bạn được sửa TRỰC
+     bảng Excel: mỗi dòng là 1 SẢN PHẨM → 1 family. Bạn được sửa TRỰC
      TIẾP trên lưới: bật/tắt từng dòng, đổi Tên family, Danh mục, Dài /
      Rộng / Cao, Chế độ dựng khối. Có nút chọn thư mục CAD, chọn nhiều
      file, chọn thư mục xuất .rfa, áp dụng nhanh cho các dòng đang chọn.
@@ -74,6 +118,8 @@ CÁCH DÙNG TRONG DYNAMO (nối IN[1] = Boolean True là chạy được ngay):
     đang mở. Mặc định False (chỉ xuất ra file .rfa).
   - IN[6] (nâng cao): Boolean — True = chạy thẳng KHÔNG mở GUI (dùng toàn
     bộ giá trị tự dò). Mặc định False (luôn mở GUI để bạn duyệt/sửa).
+  - IN[7] (tuỳ chọn): Boolean — True = nạp family vào project VÀ đặt đúng
+    toạ độ mà nó nằm trên bản CAD. Mặc định False.
 
   Nhớ đổi ENGINE của node Python Script sang "CPython3"
   (chuột phải vào node → Change Engine → CPython3).
@@ -82,6 +128,9 @@ OUT: Dictionary gồm
   "Status"          : "Done" / "Cancelled" / "Idle" / "NoInput" / "Error"
   "Created"         : số family đã tạo thành công
   "Failed"          : số family lỗi
+  "ChildFamilies"   : số family con đã dựng
+  "Nested"          : số lần family con được lồng vào family mẹ
+  "Placed"          : số family đã đặt vào project đúng vị trí CAD
   "Files"           : danh sách file .rfa đã xuất
   "Report"          : bảng tóm tắt từng dòng (list các list)
   "Warnings"        : cảnh báo / lỗi chi tiết
@@ -134,10 +183,23 @@ try:
         ImportInstance, GeometryInstance, PolyLine, Solid, PlanarFace,
         DWGImportOptions, ImportPlacement, ImportUnit, ImportColorMode,
         FamilyElementVisibility, FamilyElementVisibilityType, GraphicsStyleType,
+        FamilySymbol,
     )
     REVIT_API = True
 except Exception as _revit_exc:      # ngoài Revit (unit test / máy không có Revit)
     REVIT_IMPORT_ERROR = str(_revit_exc)
+
+# StructuralType (đặt FamilyInstance) và FamilyInstanceReferenceType (lấy
+# mặt phẳng tâm của instance để Align) — tách riêng try/except vì
+# FamilyInstanceReferenceType chỉ có từ Revit 2018 trở đi.
+try:
+    from Autodesk.Revit.DB.Structure import StructuralType
+except Exception:
+    StructuralType = None
+try:
+    from Autodesk.Revit.DB import FamilyInstanceReferenceType
+except Exception:
+    FamilyInstanceReferenceType = None
 
 # ForgeTypeId (Revit >= 2021/2022) vs API cũ (ParameterType/BuiltInParameterGroup).
 # Giữ CẢ HAI để script chạy được trên nhiều đời Revit.
@@ -242,6 +304,8 @@ MAX_CURVES_PER_VIEW = 4000
 MAX_CURVES_PER_VIEW_TURBO = 900
 # Số vòng lỗ (inner loop) tối đa đưa vào 1 khối extrusion.
 MAX_INNER_LOOPS = 40
+# Trần số family con lồng vào 1 family mẹ (mỗi khoang = 1 bộ phận).
+MAX_NESTED_PARTS = 12
 
 # Khoảng hở (tính theo % cạnh lớn nhất của toàn bản vẽ) để tách 2 cụm bản vẽ
 # rời nhau. 4% là mức thực nghiệm hợp lý cho bản vẽ nội thất/cửa.
@@ -1263,6 +1327,35 @@ def is_noise_layer(layer):
     return False
 
 
+def compute_island_frame(island):
+    """Khung bao THẬT của vật thể trong 1 cụm: khung của biên dạng kín lớn
+    nhất (đường bao ngoài do người vẽ vẽ liền nét). Nếu không có biên dạng
+    kín nào đủ lớn thì đành dùng khung bao toàn cụm.
+
+    Vì sao cần: mặt bằng tủ luôn có CUNG QUÉT CÁNH CỬA vẽ thòi ra ngoài
+    (xem ảnh hướng dẫn) — đo theo khung bao toàn cụm sẽ ra tủ sâu hơn thực
+    tế vài trăm mm. Chỉ duyệt các đối tượng VỐN ĐÃ KÍN nên rất nhanh."""
+    bb = island.bbox
+    if not bb:
+        return bb
+    total = bbox_area(bb)
+    if total <= 0:
+        return bb
+    best, best_area = None, 0.0
+    for e in island.drawable():
+        if not (e.closed or e.kind == "CIRCLE"):
+            continue
+        if is_noise_layer(e.layer):
+            continue
+        b = ent_bbox(e)
+        a = bbox_area(b)
+        if a > best_area:
+            best_area, best = a, b
+    if best is not None and best_area >= 0.25 * total:
+        return best
+    return bb
+
+
 class Island(object):
     """1 "cụm bản vẽ" rời rạc trên model space — ứng với 1 hình chiếu."""
 
@@ -1272,12 +1365,28 @@ class Island(object):
         self.kind = None          # PLAN / FRONT / BACK / LEFT / RIGHT / SECTION / EXTRA
         self.reason = u""         # vì sao lại nhận diện như vậy (hiện trên GUI)
         self.labels = []          # chữ trong/gần cụm
+        self.synthetic = False    # True = hình chiếu do script TỰ SUY RA
+        self._frame = None
+
+    # --- "KHUNG THẬT" của vật thể --------------------------------------
+    # bbox tính cả cung quét cửa, mũi tên, ký hiệu... vẽ THÒI RA ngoài vật
+    # thể -> đo Dài/Rộng theo bbox sẽ bị phồng lên. frame lấy khung của
+    # BIÊN DẠNG KÍN LỚN NHẤT (chính là đường bao vật thể) nên đo đúng.
+    @property
+    def frame(self):
+        if self._frame is None:
+            self._frame = compute_island_frame(self)
+        return self._frame
+
+    @frame.setter
+    def frame(self, value):
+        self._frame = value
 
     def size(self):
-        return bbox_size(self.bbox)
+        return bbox_size(self.frame)
 
     def area(self):
-        return bbox_area(self.bbox)
+        return bbox_area(self.frame)
 
     def text_blob(self):
         return u" ".join([e.text for e in self.ents if e.kind == "TEXT" and e.text] + self.labels)
@@ -1295,13 +1404,18 @@ class Island(object):
         return [e for e in self.ents if e.is_drawable()]
 
 
-def cluster_islands(ents, gap=None, max_cells=200000):
+def cluster_islands(ents, gap=None, max_cells=400000):
     """Gom các đối tượng thành từng cụm rời nhau bằng lưới ô vuông + loang
     vùng (flood fill) — nhanh cả với bản vẽ hàng chục nghìn nét (không so
     từng cặp đối tượng, tránh O(n²) làm treo máy).
 
     gap = khoảng hở tối thiểu giữa 2 cụm (mm). Để None -> tự tính bằng
-    ISLAND_GAP_RATIO × cạnh lớn nhất của toàn bản vẽ."""
+    ISLAND_GAP_RATIO × cạnh lớn nhất của toàn bản vẽ.
+
+    QUAN TRỌNG: ô lưới được chia MỊN HƠN khoảng hở (bằng gap/2) và phép
+    loang vùng nối các ô cách nhau ≤ 2 ô. Nếu lấy ô đúng bằng gap thì 2 vật
+    thể cách nhau GẦN BẰNG gap vẫn rơi vào 2 ô liền kề và bị dính làm một
+    — chính là lỗi làm mặt bằng tủ dính vào mặt đứng của nó."""
     ents = [e for e in ents if ent_bbox(e)]
     if not ents:
         return []
@@ -1312,48 +1426,51 @@ def cluster_islands(ents, gap=None, max_cells=200000):
         gap = span * ISLAND_GAP_RATIO
     gap = max(gap, span / 400.0, 1e-6)
 
-    nx = int(W / gap) + 2
-    ny = int(H / gap) + 2
+    cell = gap / 2.0
+    reach = 2                      # 2 ô × (gap/2) = đúng bằng gap
+    nx = int(W / cell) + 2
+    ny = int(H / cell) + 2
     while nx * ny > max_cells:
-        gap *= 1.5
-        nx = int(W / gap) + 2
-        ny = int(H / gap) + 2
+        cell *= 1.5
+        nx = int(W / cell) + 2
+        ny = int(H / cell) + 2
 
     occupied = {}
     ent_cells = []
     for idx, e in enumerate(ents):
         bb = ent_bbox(e)
-        i0 = int((bb[0] - full[0]) / gap)
-        i1 = int((bb[2] - full[0]) / gap)
-        j0 = int((bb[1] - full[1]) / gap)
-        j1 = int((bb[3] - full[1]) / gap)
-        cells = []
-        # Trần ô cho 1 đối tượng: nét dài xuyên bản vẽ (trục, khung) không
-        # được phép "dính" mọi cụm lại thành một.
+        i0 = int((bb[0] - full[0]) / cell)
+        i1 = int((bb[2] - full[0]) / cell)
+        j0 = int((bb[1] - full[1]) / cell)
+        j1 = int((bb[3] - full[1]) / cell)
+        # Trần ô cho 1 đối tượng: nét dài xuyên bản vẽ (trục, khung tên)
+        # không được phép "dính" mọi cụm lại thành một.
         if (i1 - i0 + 1) * (j1 - j0 + 1) > 40000:
             i1 = min(i1, i0 + 200)
             j1 = min(j1, j0 + 200)
+        cells = []
         for i in range(i0, i1 + 1):
             for j in range(j0, j1 + 1):
                 occupied[(i, j)] = -1
                 cells.append((i, j))
         ent_cells.append(cells)
 
-    # loang vùng 8 hướng trên các ô có nét
+    offsets = [(di, dj) for di in range(-reach, reach + 1)
+               for dj in range(-reach, reach + 1) if di or dj]
+
     comp_id = 0
-    for cell in list(occupied.keys()):
-        if occupied[cell] != -1:
+    for cell_key in list(occupied.keys()):
+        if occupied[cell_key] != -1:
             continue
-        stack = [cell]
-        occupied[cell] = comp_id
+        stack = [cell_key]
+        occupied[cell_key] = comp_id
         while stack:
             ci, cj = stack.pop()
-            for di in (-1, 0, 1):
-                for dj in (-1, 0, 1):
-                    nb = (ci + di, cj + dj)
-                    if occupied.get(nb, None) == -1:
-                        occupied[nb] = comp_id
-                        stack.append(nb)
+            for di, dj in offsets:
+                nb = (ci + di, cj + dj)
+                if occupied.get(nb, None) == -1:
+                    occupied[nb] = comp_id
+                    stack.append(nb)
         comp_id += 1
 
     groups = {}
@@ -1462,19 +1579,26 @@ def classify_islands(islands, file_name=u""):
     # --- (4): suy luận hình học -----------------------------------------
     rest = [il for il in islands if il.kind is None]
     plan = next((il for il in islands if il.kind == "PLAN"), None)
+    max_h = max([il.size()[1] for il in islands] or [0.0])
+
     if plan is None and rest:
-        # nhiều vòng kín nhất; hoà thì lấy cụm có diện tích lớn nhất
-        rest.sort(key=lambda il: (-il.closed_count(), -il.area()))
-        plan = rest[0]
-        plan.kind = "PLAN"
-        plan.reason = (u"nhiều biên dạng kín nhất (%d) → mặt bằng" % plan.closed_count()
-                       if plan.closed_count() else u"cụm lớn nhất → mặt bằng")
-        used.add("PLAN")
-        rest = rest[1:]
+        # Chọn ứng viên mặt bằng bằng ĐIỂM GIỐNG MẶT BẰNG (cung quét cánh,
+        # thiết bị nhỏ, hình thấp) — KHÔNG ép buộc phải có mặt bằng nữa:
+        # bản vẽ chỉ toàn mặt đứng (như bản vẽ bếp trong ảnh hướng dẫn) thì
+        # mặt bằng sẽ được TỰ SUY RA ở bước sau (synthesize_views).
+        cands = sorted(rest, key=lambda il: -plan_likeness(il, max_h))
+        best = cands[0]
+        score = plan_likeness(best, max_h)
+        if score >= PLAN_SCORE_MIN:
+            plan = best
+            plan.kind = "PLAN"
+            plan.reason = u"dấu hiệu mặt bằng (điểm %.1f: cung quét cánh / thiết bị / hình thấp)" % score
+            used.add("PLAN")
+            rest = [il for il in rest if il is not plan]
 
     if plan is not None and rest:
         pl, pw = plan.size()
-        fronts, sides, others = [], [], []
+        fronts, sides = [], []
         for il in rest:
             w, _h = il.size()
             d_len = abs(w - pl) / pl if pl > 0 else 9.0
@@ -1483,10 +1607,8 @@ def classify_islands(islands, file_name=u""):
                 fronts.append(il)
             elif d_wid <= 0.12:
                 sides.append(il)
-            else:
-                others.append(il)
-        fronts.sort(key=lambda il: bbox_center(il.bbox)[0])
-        sides.sort(key=lambda il: bbox_center(il.bbox)[0])
+        fronts.sort(key=lambda il: bbox_center(il.frame)[0])
+        sides.sort(key=lambda il: bbox_center(il.frame)[0])
         for il, kind in zip(fronts, [k for k in ("FRONT", "BACK") if k not in used]):
             il.kind = kind
             il.reason = u"bề ngang ≈ Dài mặt bằng → mặt đứng %s" % kind
@@ -1497,8 +1619,44 @@ def classify_islands(islands, file_name=u""):
             used.add(kind)
         rest = [il for il in rest if il.kind is None]
 
+    elif rest:
+        # KHÔNG có mặt bằng: hình rộng nhất là mặt đứng chính; các hình
+        # CÙNG CHIỀU CAO đứng cạnh nó là mặt bên (trái/phải theo vị trí),
+        # hình rộng bằng mặt đứng chính là mặt sau.
+        rest.sort(key=lambda il: -il.size()[0])
+        front = rest[0]
+        front.kind = "FRONT"
+        front.reason = u"không có mặt bằng — hình rộng nhất → mặt đứng chính"
+        used.add("FRONT")
+        fw, fh = front.size()
+        fx = bbox_center(front.frame)[0]
+        remain = [il for il in rest[1:]]
+        for il in list(remain):
+            w, h = il.size()
+            same_h = fh <= 0 or abs(h - fh) <= max(fh * 0.10, 1.0)
+            if "BACK" not in used and same_h and fw > 0 and abs(w - fw) / fw <= 0.12:
+                il.kind = "BACK"
+                il.reason = u"cùng cao & cùng bề ngang mặt đứng chính → mặt sau"
+                used.add("BACK")
+                remain.remove(il)
+        sides = [il for il in remain
+                 if fh <= 0 or abs(il.size()[1] - fh) <= max(fh * 0.10, 1.0)]
+        sides.sort(key=lambda il: abs(bbox_center(il.frame)[0] - fx))
+        for il in sides:
+            cx = bbox_center(il.frame)[0]
+            kind = "LEFT" if cx < fx else "RIGHT"
+            if kind in used:
+                kind = "RIGHT" if kind == "LEFT" else "LEFT"
+            if kind in used:
+                continue
+            il.kind = kind
+            il.reason = u"cùng chiều cao, nằm %s mặt đứng chính → mặt bên" % (
+                u"trái" if kind == "LEFT" else u"phải")
+            used.add(kind)
+        rest = [il for il in rest if il.kind is None]
+
     leftover = [k for k in ELEVATION_FALLBACK_ORDER if k not in used]
-    rest.sort(key=lambda il: bbox_center(il.bbox)[0])
+    rest.sort(key=lambda il: bbox_center(il.frame)[0])
     for il in rest:
         if leftover:
             il.kind = leftover.pop(0)
@@ -1510,40 +1668,64 @@ def classify_islands(islands, file_name=u""):
 
 
 def infer_dimensions(islands, category="GenericModel"):
-    """Suy Dài / Rộng / Cao (mm) từ các cụm đã nhận diện.
-      - Mặt bằng  -> Dài (theo X) và Rộng (theo Y)
-      - Mặt đứng  -> Cao (theo Y); ưu tiên FRONT, rồi BACK/LEFT/RIGHT
-      - Thiếu dữ liệu -> lấy mặc định theo danh mục (DEFAULT_DIMS)
+    """Suy Dài / Rộng / Cao (mm) từ các hình chiếu đã nhận diện, theo đúng
+    ý nghĩa hình học của từng hình chiếu:
+      - MẶT BẰNG      -> Dài (ngang) và Rộng (đứng, chính là chiều sâu)
+      - MẶT ĐỨNG      -> Cao; và Dài nếu không có mặt bằng
+      - MẶT BÊN       -> Rộng (bề ngang mặt bên = chiều sâu vật thể); và Cao
+      - MẶT CẮT       -> dùng khi không có mặt đứng lẫn mặt bên
+      - thiếu hết     -> lấy mặc định theo danh mục (DEFAULT_DIMS)
+    Chỉ đo trên hình chiếu ĐỌC ĐƯỢC TỪ CAD, không đo trên hình tự suy ra,
+    và đo theo KHUNG THẬT (bỏ cung quét cánh vẽ thòi ra ngoài).
     Trả về (dài, rộng, cao, ghi_chú_nguồn)."""
     dl, dw, dh = DEFAULT_DIMS.get(category, DEFAULT_DIMS["GenericModel"])
     notes = []
+    islands = [il for il in islands if not getattr(il, "synthetic", False)]
     by_kind = {}
     for il in islands:
         if il.kind and il.kind not in by_kind:
             by_kind[il.kind] = il
 
     plan = by_kind.get("PLAN")
+    front = by_kind.get("FRONT") or by_kind.get("BACK")
+    side = by_kind.get("LEFT") or by_kind.get("RIGHT")
+    sect = by_kind.get("SECTION")
+
     if plan is not None:
         w, h = plan.size()
         if w > 1.0 and h > 1.0:
             dl, dw = w, h
             notes.append(u"Dài×Rộng lấy từ mặt bằng")
-    for k in ("FRONT", "BACK", "LEFT", "RIGHT", "SECTION"):
-        il = by_kind.get(k)
-        if il is not None:
-            _w, h = il.size()
-            if h > 1.0:
-                dh = h
-                notes.append(u"Cao lấy từ mặt đứng %s" % k)
-                break
-    if plan is None:
-        # Không có mặt bằng: lấy cụm lớn nhất làm bề ngang, giữ Rộng mặc định.
+    if front is not None:
+        w, h = front.size()
+        if h > 1.0:
+            dh = h
+            notes.append(u"Cao lấy từ mặt đứng chính")
+        if plan is None and w > 1.0:
+            dl = w
+            notes.append(u"Dài lấy từ mặt đứng chính")
+    if side is not None:
+        w, h = side.size()
+        if front is None and h > 1.0:
+            dh = h
+            notes.append(u"Cao lấy từ mặt bên")
+        if plan is None and w > 1.0:
+            dw = w
+            notes.append(u"Rộng (chiều sâu) lấy từ mặt bên")
+    if front is None and side is None and sect is not None:
+        w, h = sect.size()
+        if h > 1.0:
+            dh = h
+        if plan is None and w > 1.0:
+            dw = w
+        notes.append(u"Cao lấy từ mặt cắt")
+    if plan is None and front is None and side is None and sect is None:
         for il in islands:
             w, h = il.size()
             if w > 1.0:
                 dl = w
                 dh = h if h > 1.0 else dh
-                notes.append(u"Không thấy mặt bằng — Dài/Cao lấy từ hình chiếu %s" % (il.kind or u"?"))
+                notes.append(u"Chỉ có 1 hình chiếu %s — Dài/Cao lấy từ đó" % (il.kind or u"?"))
                 break
     if not notes:
         notes.append(u"Dùng kích thước mặc định của danh mục")
@@ -1752,6 +1934,581 @@ def is_rectangleish(loop, angle_tol_deg=8.0, area_tol=0.06):
 
 
 # ------------------------------------------------------------------------
+# 5b. "ĐỌC HIỂU" NỘI DUNG 1 HÌNH CHIẾU
+#     Đây là phần suy luận: đọc ra các ĐƯỜNG CHIA chính (vách ngăn / mép
+#     cánh / mặt kệ), đếm CUNG QUÉT CỬA và ĐƯỜNG CHÉO ký hiệu cánh, để biết
+#     hình đang xem là MẶT BẰNG hay MẶT ĐỨNG, và để lát nữa dựng được hình
+#     chiếu còn thiếu (mục 5d) cùng các khoang tủ (mục 5e).
+# ------------------------------------------------------------------------
+def island_segments(island, local=True):
+    """Toàn bộ đoạn thẳng của 1 cụm. local=True -> quy về gốc toạ độ ở góc
+    dưới-trái của KHUNG THẬT (island.frame)."""
+    fr = island.frame
+    ox, oy = (fr[0], fr[1]) if (local and fr) else (0.0, 0.0)
+    segs = []
+    for e in island.drawable():
+        if is_noise_layer(e.layer):
+            continue
+        pts = e.points()
+        for i in range(len(pts) - 1):
+            p1 = (pts[i][0] - ox, pts[i][1] - oy)
+            p2 = (pts[i + 1][0] - ox, pts[i + 1][1] - oy)
+            if math.hypot(p2[0] - p1[0], p2[1] - p1[1]) >= MIN_SEG_LEN_MM:
+                segs.append((p1, p2))
+    return segs
+
+
+def _cluster_values(vals, tol):
+    """Gộp các giá trị gần nhau thành 1 (vd nhiều đoạn cùng nằm trên 1
+    đường chia bị vẽ đứt quãng)."""
+    if not vals:
+        return []
+    vals = sorted(vals)
+    out = [[vals[0]]]
+    for v in vals[1:]:
+        if v - out[-1][-1] <= tol:
+            out[-1].append(v)
+        else:
+            out.append([v])
+    return [sum(g) / float(len(g)) for g in out]
+
+
+def extract_grid_lines(island, min_ratio=0.62, merge_ratio=0.02):
+    """Tìm các ĐƯỜNG CHIA chính của 1 hình chiếu.
+
+    Trả về (xs, ys, (W, H)) — toạ độ LOCAL so với góc dưới-trái khung thật:
+      xs = vị trí các đường thẳng ĐỨNG dài ≥ min_ratio × chiều cao
+      ys = vị trí các đường NẰM NGANG dài ≥ min_ratio × chiều rộng
+    Các đoạn rời nằm trên cùng 1 đường được cộng dồn chiều dài trước khi
+    xét (vách ngăn hay bị cắt khúc bởi tay nắm, ký hiệu...)."""
+    fr = island.frame
+    if not fr:
+        return [], [], (0.0, 0.0)
+    W, H = bbox_size(fr)
+    if W <= 0 or H <= 0:
+        return [], [], (W, H)
+    tol_v = max(W * merge_ratio, 0.5)
+    tol_h = max(H * merge_ratio, 0.5)
+
+    # Gom theo ô lưới để cộng dồn chiều dài, NHƯNG vị trí trả về là trung
+    # bình có trọng số của chính các đoạn thật — không lấy toạ độ ô lưới,
+    # nếu không vị trí vách sẽ bị "hít" về bội số của dung sai (vd vách ở
+    # 600 mm bị trả về 576 mm) làm sai toàn bộ kích thước khoang phía sau.
+    vert = {}
+    horz = {}
+    for (p1, p2) in island_segments(island):
+        dx, dy = p2[0] - p1[0], p2[1] - p1[1]
+        if abs(dx) <= tol_v * 0.5 and abs(dy) > 0:
+            pos = (p1[0] + p2[0]) / 2.0
+            key = int(round(pos / tol_v))
+            acc = vert.setdefault(key, [0.0, 0.0])
+            acc[0] += abs(dy)
+            acc[1] += abs(dy) * pos
+        elif abs(dy) <= tol_h * 0.5 and abs(dx) > 0:
+            pos = (p1[1] + p2[1]) / 2.0
+            key = int(round(pos / tol_h))
+            acc = horz.setdefault(key, [0.0, 0.0])
+            acc[0] += abs(dx)
+            acc[1] += abs(dx) * pos
+
+    xs = _cluster_values([acc[1] / acc[0] for acc in vert.values()
+                          if acc[0] >= H * min_ratio and acc[0] > 0], tol_v * 2)
+    ys = _cluster_values([acc[1] / acc[0] for acc in horz.values()
+                          if acc[0] >= W * min_ratio and acc[0] > 0], tol_h * 2)
+    return xs, ys, (W, H)
+
+
+def interior_values(vals, span, edge_ratio=0.04):
+    """Bỏ 2 đường ngoài cùng (chính là mép khung) — chỉ giữ đường chia bên
+    trong."""
+    t = max(span * edge_ratio, 0.5)
+    return [v for v in vals if t < v < span - t]
+
+
+def count_swing_arcs(island):
+    """Đếm CUNG QUÉT CÁNH CỬA (cung ~90°, bán kính đáng kể) — dấu hiệu rất
+    mạnh của MẶT BẰNG (xem ảnh hướng dẫn: mặt bằng tủ áo luôn có cung quét)."""
+    fr = island.frame
+    span = max(bbox_size(fr)) if fr else 0.0
+    n = 0
+    for e in island.ents:
+        if e.kind != "ARC" or e.radius <= 0:
+            continue
+        sweep = (e.a1 - e.a0) % 360.0
+        if sweep <= 0:
+            sweep += 360.0
+        if 55.0 <= sweep <= 125.0 and (span <= 0 or e.radius >= span * 0.05):
+            n += 1
+    return n
+
+
+def count_leaf_diagonals(island):
+    """Đếm ĐƯỜNG CHÉO DÀI — ký hiệu cánh mở vẽ trên MẶT ĐỨNG (hình chữ X
+    hoặc gạch chéo trong ô cánh)."""
+    fr = island.frame
+    if not fr:
+        return 0
+    W, H = bbox_size(fr)
+    diag = math.hypot(W, H)
+    if diag <= 0:
+        return 0
+    n = 0
+    for (p1, p2) in island_segments(island):
+        dx, dy = abs(p2[0] - p1[0]), abs(p2[1] - p1[1])
+        if math.hypot(dx, dy) < diag * 0.25:
+            continue
+        # Không xét theo GÓC: ô cánh tủ cao và hẹp cho đường chéo tới ~80°,
+        # gần như thẳng đứng, xét góc sẽ bỏ sót. Xét theo mức "ăn" cả 2
+        # phương: nét vừa chạy ngang đáng kể vừa chạy dọc đáng kể mới là
+        # đường chéo ký hiệu cánh.
+        if dx >= W * 0.12 and dy >= H * 0.12:
+            n += 1
+    return n
+
+
+def count_small_closed(island, max_ratio=0.35):
+    """Đếm biên dạng kín NHỎ nằm trong cụm (chậu rửa, bồn cầu, lỗ khoét,
+    thiết bị...) — dấu hiệu của MẶT BẰNG."""
+    fr = island.frame
+    total = bbox_area(fr)
+    if total <= 0:
+        return 0
+    n = 0
+    for e in island.drawable():
+        if not (e.closed or e.kind == "CIRCLE"):
+            continue
+        if is_noise_layer(e.layer):
+            continue
+        a = bbox_area(ent_bbox(e))
+        if 0 < a <= total * max_ratio:
+            n += 1
+    return n
+
+
+PLAN_SCORE_MIN = 0.5
+
+
+def plan_likeness(island, group_max_height=None):
+    """Điểm "giống MẶT BẰNG": > 0 là mặt bằng, < 0 là mặt đứng.
+
+    Căn cứ (đúng thói quen vẽ CAD thực tế):
+      + cung quét cánh cửa            -> chắc chắn mặt bằng
+      + nhiều biên dạng kín nhỏ       -> thiết bị/chậu trên mặt bằng
+      + hình "thấp" hơn hẳn các hình cùng bản vẽ -> mặt bằng (chiều sâu
+        luôn nhỏ hơn chiều cao)
+      − đường chéo dài ký hiệu cánh   -> mặt đứng
+      ± chữ ghi chú thì quyết định luôn."""
+    kind, _kw = match_view_keyword(island.text_blob())
+    if kind == "PLAN":
+        return 10.0
+    if kind in ("FRONT", "BACK", "LEFT", "RIGHT", "SECTION"):
+        return -10.0
+    score = 2.0 * min(count_swing_arcs(island), 4)
+    score += 0.8 * min(count_small_closed(island), 6)
+    score -= 2.0 * min(count_leaf_diagonals(island), 4)
+    if group_max_height:
+        h = island.size()[1]
+        if h > 0 and h <= group_max_height * 0.6:
+            score += 0.6
+    return score
+
+
+# ------------------------------------------------------------------------
+# 5c. TÁCH NHIỀU SẢN PHẨM TRONG CÙNG 1 FILE CAD
+#     1 file CAD thường chứa CẢ LOẠT sản phẩm (8 cái tủ áo, 5 bộ bếp, cả
+#     trăm ký hiệu đồ đạc trên mặt bằng...). Hàm dưới đây gom các cụm hình
+#     chiếu về ĐÚNG SẢN PHẨM của nó, để mỗi sản phẩm thành 1 family riêng.
+# ------------------------------------------------------------------------
+def overlap_1d(a0, a1, b0, b1):
+    return max(0.0, min(a1, b1) - max(a0, b0))
+
+
+def gap_1d(a0, a1, b0, b1):
+    """Khoảng hở giữa 2 đoạn. Âm = 2 đoạn chồng lên nhau."""
+    if a1 < b0:
+        return b0 - a1
+    if b1 < a0:
+        return a0 - b1
+    return -overlap_1d(a0, a1, b0, b1)
+
+
+class _UF(object):
+    """Union-Find tối giản để gom nhóm."""
+
+    def __init__(self, n):
+        self.p = list(range(n))
+
+    def find(self, x):
+        while self.p[x] != x:
+            self.p[x] = self.p[self.p[x]]
+            x = self.p[x]
+        return x
+
+    def union(self, a, b):
+        ra, rb = self.find(a), self.find(b)
+        if ra != rb:
+            self.p[rb] = ra
+            return True
+        return False
+
+
+def group_products(islands, enable=True):
+    """Gom danh sách cụm thành TỪNG SẢN PHẨM. Trả về list các list-cụm.
+
+    Hai luật gom, chạy theo đúng thứ tự (luật chắc chắn trước):
+
+    LUẬT 1 — XẾP CHỒNG DỌC (mặt bằng nằm ngay dưới mặt đứng của chính nó):
+      hai cụm phải NẰM CHỒNG theo phương ngang (≥ 60%), một cụm giống MẶT
+      BẰNG còn cụm kia giống MẶT ĐỨNG (điểm plan_likeness trái dấu), cụm
+      mặt bằng phải THẤP HƠN, và khe hở dọc đủ nhỏ. Mỗi cụm chỉ được ghép
+      1 lần theo luật này. Đây chính là bố cục "tủ áo" trong ảnh hướng dẫn.
+
+    LUẬT 2 — CÙNG HÀNG NGANG (mặt đứng chính + mặt bên đứng cạnh nhau):
+      trong cùng 1 dải ngang, cụm RỘNG NHẤT là mặt đứng chính; cụm nào
+      CÙNG CHIỀU CAO, HẸP HƠN HẲN và ĐỨNG SÁT bên cạnh thì là mặt bên của
+      nó. KHÔNG áp dụng cho cụm đã có mặt bằng riêng ở luật 1 (nếu không,
+      cả dãy 8 cái tủ trong ảnh sẽ bị gộp nhầm thành 1 sản phẩm), và không
+      gộp 2 cụm cùng là mặt bằng (dãy ký hiệu đồ đạc trên mặt bằng).
+
+    Cụm không ghép được với ai thì tự nó là 1 sản phẩm (thiếu hình chiếu
+    nào sẽ được TỰ SUY RA ở mục 5d)."""
+    islands = [il for il in islands if il.frame]
+    n = len(islands)
+    if not enable or n <= 1:
+        return [list(islands)] if islands else []
+
+    uf = _UF(n)
+    frames = [il.frame for il in islands]
+    sizes = [il.size() for il in islands]
+    max_h = max([sz[1] for sz in sizes] or [0.0])
+    scores = [plan_likeness(islands[i], max_h) for i in range(n)]
+
+    # ---- LUẬT 1: xếp chồng dọc mặt bằng ↔ mặt đứng --------------------
+    cands = []
+    for i in range(n):
+        for j in range(i + 1, n):
+            if (scores[i] > 0) == (scores[j] > 0):
+                continue                      # cần đúng 1 mặt bằng + 1 mặt đứng
+            bi, bj = frames[i], frames[j]
+            wi, hi = sizes[i]
+            wj, hj = sizes[j]
+            wmin = min(wi, wj)
+            if wmin <= 0:
+                continue
+            if overlap_1d(bi[0], bi[2], bj[0], bj[2]) / wmin < 0.6:
+                continue
+            gy = gap_1d(bi[1], bi[3], bj[1], bj[3])
+            if gy < 0:
+                continue                      # chồng lên nhau -> không phải xếp chồng
+            p, e = (i, j) if scores[i] > 0 else (j, i)
+            hp, he = sizes[p][1], sizes[e][1]
+            if he <= 0 or hp > he * 0.95:
+                continue                      # mặt bằng phải thấp hơn mặt đứng
+            if gy > max(hp * 1.2, he * 0.25):
+                continue
+            cands.append((gy, p, e))
+    cands.sort()
+    paired = set()
+    for gy, p, e in cands:
+        if p in paired or e in paired:
+            continue
+        uf.union(p, e)
+        paired.add(p)
+        paired.add(e)
+
+    anchored = set(uf.find(i) for i in paired)   # nhóm đã có mặt bằng riêng
+
+    # ---- LUẬT 2: mặt bên đứng cạnh mặt đứng chính trong cùng dải ngang -
+    bands = _UF(n)
+    for i in range(n):
+        for j in range(i + 1, n):
+            hmin = min(sizes[i][1], sizes[j][1])
+            if hmin <= 0:
+                continue
+            if overlap_1d(frames[i][1], frames[i][3], frames[j][1], frames[j][3]) / hmin >= 0.6:
+                bands.union(i, j)
+    by_band = {}
+    for i in range(n):
+        by_band.setdefault(bands.find(i), []).append(i)
+
+    attached = set()
+    for band in by_band.values():
+        if len(band) < 2:
+            continue
+        for a in sorted(band, key=lambda k: -sizes[k][0]):
+            if a in attached or uf.find(a) in anchored:
+                continue
+            wa, ha = sizes[a]
+            if wa <= 0:
+                continue
+            ax = bbox_center(frames[a])[0]
+            picks = []
+            for b in band:
+                if b == a or b in attached or uf.find(b) == uf.find(a):
+                    continue
+                if uf.find(b) in anchored:
+                    continue
+                if scores[a] > 0 and scores[b] > 0:
+                    continue          # 2 mặt bằng cạnh nhau = 2 sản phẩm khác nhau
+                wb, hb = sizes[b]
+                if ha > 0 and abs(hb - ha) > max(ha * 0.08, 1.0):
+                    continue
+                if wb > wa * 0.65:
+                    continue
+                gx = gap_1d(frames[a][0], frames[a][2], frames[b][0], frames[b][2])
+                if gx < 0 or gx > wa * 0.5:
+                    continue
+                picks.append((gx, b))
+            picks.sort()
+            took_left = took_right = False
+            for gx, b in picks:
+                left = bbox_center(frames[b])[0] < ax
+                if (left and took_left) or ((not left) and took_right):
+                    continue
+                uf.union(a, b)
+                attached.add(b)
+                if left:
+                    took_left = True
+                else:
+                    took_right = True
+
+    groups = {}
+    for i in range(n):
+        groups.setdefault(uf.find(i), []).append(islands[i])
+    out = list(groups.values())
+    # sắp xếp theo vị trí đọc bản vẽ: trên xuống dưới, trái sang phải
+    out.sort(key=lambda g: (-max(il.frame[3] for il in g),
+                            min(il.frame[0] for il in g)))
+    return out
+
+
+# ------------------------------------------------------------------------
+# 5d. TỰ SUY RA HÌNH CHIẾU CÒN THIẾU (phép chiếu vuông góc)
+#     Có mặt đứng mà thiếu mặt bằng (hoặc ngược lại) thì dựng nốt hình còn
+#     thiếu theo đúng nguyên tắc hình học hoạ hình:
+#         MẶT BẰNG  cho (x, y)      MẶT ĐỨNG cho (x, z)     MẶT BÊN cho (y, z)
+#     Đường chia của hình này chiếu thẳng sang hình kia theo trục dùng chung:
+#       - vách đứng trên MẶT ĐỨNG (toạ độ x) -> vách đứng trên MẶT BẰNG
+#       - mặt kệ trên MẶT ĐỨNG   (toạ độ z) -> đường ngang trên MẶT BÊN
+#       - vách theo chiều sâu trên MẶT BẰNG (toạ độ y) -> vách trên MẶT BÊN
+# ------------------------------------------------------------------------
+SYNTH_LAYER = u"SYNTH-TU-SUY"
+
+
+def rescale_values(vals, src_span, dst_span):
+    """Chiếu các vị trí đường chia từ khung nguồn sang khung đích."""
+    if not vals or src_span <= 0:
+        return []
+    k = float(dst_span) / float(src_span)
+    return [v * k for v in vals]
+
+
+def door_swing_ents(x0, x1, layer=SYNTH_LAYER, max_single=1200.0):
+    """Ký hiệu cánh mở trên MẶT BẰNG: nét cánh ở vị trí mở + cung quét 90°,
+    đúng như cách vẽ trên bản CAD trong ảnh hướng dẫn. Khoang rộng quá thì
+    tách thành 2 cánh mở về 2 phía."""
+    w = x1 - x0
+    if w <= 0:
+        return []
+    out = []
+    if w <= max_single:
+        r = w
+        out.append(CadEnt("POLY", layer, [(x0, 0.0), (x0, -r)], False))
+        out.append(CadEnt("ARC", layer, [], False, (x0, 0.0), r, 270.0, 360.0))
+    else:
+        r = w / 2.0
+        out.append(CadEnt("POLY", layer, [(x0, 0.0), (x0, -r)], False))
+        out.append(CadEnt("ARC", layer, [], False, (x0, 0.0), r, 270.0, 360.0))
+        out.append(CadEnt("POLY", layer, [(x1, 0.0), (x1, -r)], False))
+        out.append(CadEnt("ARC", layer, [], False, (x1, 0.0), r, 180.0, 270.0))
+    return out
+
+
+def make_view_island(kind, width, height, v_lines=None, h_lines=None,
+                     swing_bays=None, reason=u""):
+    """Dựng 1 hình chiếu NHÂN TẠO: khung chữ nhật + các đường chia đã chiếu
+    sang + (tuỳ chọn) ký hiệu cánh mở."""
+    if width <= 0 or height <= 0:
+        return None
+    ents = [CadEnt("POLY", SYNTH_LAYER,
+                   [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)], True)]
+    for x in (v_lines or []):
+        if 0.5 < x < width - 0.5:
+            ents.append(CadEnt("POLY", SYNTH_LAYER, [(x, 0.0), (x, height)], False))
+    for y in (h_lines or []):
+        if 0.5 < y < height - 0.5:
+            ents.append(CadEnt("POLY", SYNTH_LAYER, [(0.0, y), (width, y)], False))
+    for (x0, x1) in (swing_bays or []):
+        ents.extend(door_swing_ents(x0, x1))
+    il = Island(ents)
+    il.frame = (0.0, 0.0, width, height)
+    il.kind = kind
+    il.synthetic = True
+    il.reason = reason or u"tự suy ra bằng phép chiếu vuông góc"
+    return il
+
+
+SWING_CATEGORIES = ("Casework", "Furniture", "Doors", "GenericModel")
+
+
+def synthesize_views(views, length, width, height, category="GenericModel",
+                     want=("PLAN", "FRONT", "LEFT"), door_swing=True):
+    """Bổ sung các hình chiếu còn thiếu. Trả về (views_mới, danh_sách_đã_suy).
+
+    views: dict kind -> Island (các hình chiếu ĐỌC ĐƯỢC từ CAD)
+    length/width/height: kích thước đã chốt (mm)"""
+    made = []
+    if length <= 0 or width <= 0 or height <= 0:
+        return views, made
+
+    def grid(kind):
+        il = views.get(kind)
+        if il is None or il.synthetic:
+            return [], [], (0.0, 0.0)
+        xs, ys, span = extract_grid_lines(il)
+        return (interior_values(xs, span[0]), interior_values(ys, span[1]), span)
+
+    px, py, pspan = grid("PLAN")
+    fx, fy, fspan = grid("FRONT")
+    if not fx and not fy:
+        fx, fy, fspan = grid("BACK")
+    sx, sy, sspan = grid("LEFT")
+    if not sx and not sy:
+        sx, sy, sspan = grid("RIGHT")
+
+    # ---- MẶT BẰNG: x lấy từ mặt đứng, y (chiều sâu) lấy từ mặt bên -----
+    if "PLAN" in want and "PLAN" not in views:
+        v = rescale_values(fx, fspan[0], length)
+        h = rescale_values(sx, sspan[0], width)
+        bays = None
+        if door_swing and category in SWING_CATEGORIES:
+            edges = [0.0] + sorted(v) + [length]
+            bays = [(edges[i], edges[i + 1]) for i in range(len(edges) - 1)
+                    if edges[i + 1] - edges[i] >= length * 0.05]
+        src = u"mặt đứng" if v else (u"mặt bên" if h else u"kích thước bao")
+        il = make_view_island("PLAN", length, width, v, h, bays,
+                              u"tự suy ra từ %s (chiếu vuông góc)" % src)
+        if il is not None:
+            views["PLAN"] = il
+            made.append("PLAN")
+
+    # ---- MẶT ĐỨNG CHÍNH: x từ mặt bằng, z (cao độ) từ mặt bên ----------
+    if "FRONT" in want and "FRONT" not in views and "BACK" not in views:
+        v = rescale_values(px, pspan[0], length)
+        h = rescale_values(sy, sspan[1], height)
+        src = u"mặt bằng" if v else (u"mặt bên" if h else u"kích thước bao")
+        il = make_view_island("FRONT", length, height, v, h, None,
+                              u"tự suy ra từ %s (chiếu vuông góc)" % src)
+        if il is not None:
+            views["FRONT"] = il
+            made.append("FRONT")
+
+    # ---- MẶT BÊN: ngang là chiều sâu (từ mặt bằng), dọc là cao độ ------
+    if "LEFT" in want and "LEFT" not in views and "RIGHT" not in views:
+        v = rescale_values(py, pspan[1], width)
+        h = rescale_values(fy, fspan[1], height)
+        src = u"mặt bằng + mặt đứng" if (v and h) else (
+            u"mặt đứng" if h else (u"mặt bằng" if v else u"kích thước bao"))
+        il = make_view_island("LEFT", width, height, v, h, None,
+                              u"tự suy ra từ %s (chiếu vuông góc)" % src)
+        if il is not None:
+            views["LEFT"] = il
+            made.append("LEFT")
+    return views, made
+
+
+# ------------------------------------------------------------------------
+# 5e. TÁCH "KHOANG" (bộ phận con) ĐỂ DỰNG FAMILY CON LỒNG VÀO FAMILY MẸ
+# ------------------------------------------------------------------------
+class SubPart(object):
+    """1 khoang / 1 cánh / 1 module con của sản phẩm."""
+
+    def __init__(self, index, x0, x1, depth, height, draw_x0=None, draw_x1=None):
+        self.index = index
+        self.x0 = x0                  # mm THẬT của sản phẩm
+        self.x1 = x1
+        self.width = x1 - x0
+        self.depth = depth
+        self.height = height
+        self.center = (x0 + x1) / 2.0
+        # toạ độ trong HỆ CỦA BẢN VẼ (dùng để cắt lấy nét CAD của khoang)
+        self.draw_x0 = x0 if draw_x0 is None else draw_x0
+        self.draw_x1 = x1 if draw_x1 is None else draw_x1
+
+    @property
+    def key(self):
+        """Khoá gộp: 2 khoang cùng kích thước dùng CHUNG 1 family con."""
+        return (int(round(self.width)), int(round(self.depth)), int(round(self.height)))
+
+    def __repr__(self):
+        return "SubPart(%d, %.0fx%.0fx%.0f)" % (self.index, self.width, self.depth, self.height)
+
+
+def detect_bays(island, min_frac=0.06):
+    """Chia 1 mặt đứng thành các KHOANG theo các vách đứng chạy suốt chiều
+    cao. Khoang quá hẹp (nét trang trí, khe hở) được nhập vào khoang trước
+    để không sinh ra family con vụn vặt."""
+    if island is None:
+        return [], (0.0, 0.0)
+    xs, _ys, span = extract_grid_lines(island)
+    W, H = span
+    if W <= 0:
+        return [], span
+    edges = [0.0] + sorted(interior_values(xs, W)) + [W]
+    bays = []
+    for i in range(len(edges) - 1):
+        x0, x1 = edges[i], edges[i + 1]
+        if x1 - x0 < W * min_frac and bays:
+            bays[-1] = (bays[-1][0], x1)
+        else:
+            bays.append((x0, x1))
+    bays = [b for b in bays if b[1] - b[0] >= W * min_frac]
+    return bays, span
+
+
+def build_subparts(front_island, length, width, height, max_parts=12):
+    """Từ mặt đứng chính -> danh sách bộ phận con, đã quy về kích thước
+    THẬT (mm) của sản phẩm. Trả về (parts, các_khoang_đều_nhau?)."""
+    bays, span = detect_bays(front_island)
+    if len(bays) < 2 or len(bays) > max_parts:
+        return [], False
+    W = span[0] or 1.0
+    k = float(length) / W
+    parts = []
+    for i, (x0, x1) in enumerate(bays):
+        parts.append(SubPart(i, x0 * k, x1 * k, width, height, x0, x1))
+    widths = [p.width for p in parts]
+    wmax = max(widths)
+    equal = wmax > 0 and (wmax - min(widths)) / wmax <= 0.03
+    return parts, equal
+
+
+def crop_island(island, x0, x1, pad_ratio=0.0):
+    """Cắt lấy phần bản vẽ nằm trong khoảng x0..x1 (toạ độ LOCAL so với
+    khung thật) để đưa vào family con. Lọc theo TÂM đối tượng nên nét nào
+    thuộc khoang nào là rõ ràng, không cắt đôi nét."""
+    fr = island.frame
+    if not fr:
+        return None
+    ox, oy = fr[0], fr[1]
+    pad = (x1 - x0) * pad_ratio
+    ents = []
+    for e in island.drawable():
+        b = ent_bbox(e)
+        if not b:
+            continue
+        cx = (b[0] + b[2]) / 2.0 - ox
+        if x0 - pad <= cx <= x1 + pad:
+            ents.append(e.moved(-ox - x0, -oy))
+    if not ents:
+        return None
+    il = Island(ents)
+    il.frame = (0.0, 0.0, x1 - x0, fr[3] - fr[1])
+    il.kind = island.kind
+    return il
+
+
+# ------------------------------------------------------------------------
 # 6. GOM FILE THÀNH "KẾ HOẠCH TẠO FAMILY" (FamilyPlan)
 #    Hỗ trợ cả 2 kiểu tổ chức file mà bạn hay dùng:
 #      A) 1 file CAD chứa ĐỦ mặt bằng + các mặt đứng  → 1 family
@@ -1827,6 +2584,13 @@ class FamilyPlan(object):
         self.warnings = []
         self.unit_name = u""
         self.elapsed_ms = 0
+        self.synth = []           # các hình chiếu do script TỰ SUY RA
+        self.parts = []           # bộ phận con (khoang) -> family con lồng vào
+        self.parts_equal = False  # các khoang có đều nhau không (chia được công thức)
+        self.nested = 0           # số family con đã lồng thành công
+        self.child_files = []     # đường dẫn .rfa của các family con
+        self.cad_origin = None    # tâm vật thể trên hệ toạ độ CAD (mm)
+        self.product_index = 0    # thứ tự sản phẩm trong cùng 1 file CAD
 
     @property
     def src_paths(self):
@@ -1839,11 +2603,22 @@ class FamilyPlan(object):
         return u"%s (+%d file)" % (os.path.basename(self.sources[0].path), len(self.sources) - 1)
 
     def views_display(self):
+        """Hiển thị các hình chiếu; dấu * = hình chiếu script TỰ SUY RA."""
         order = ["PLAN", "FRONT", "BACK", "LEFT", "RIGHT", "SECTION"]
         vn = {"PLAN": u"MB", "FRONT": u"MĐ", "BACK": u"Sau", "LEFT": u"Trái",
               "RIGHT": u"Phải", "SECTION": u"Cắt"}
-        got = [vn[k] for k in order if k in self.views]
+        got = []
+        for k in order:
+            il = self.views.get(k)
+            if il is None:
+                continue
+            got.append(vn[k] + (u"*" if getattr(il, "synthetic", False) else u""))
         return u"+".join(got) if got else u"—"
+
+    def parts_display(self):
+        if not self.parts:
+            return u"—"
+        return u"%d khoang%s" % (len(self.parts), u" (đều)" if self.parts_equal else u"")
 
 
 def group_files_into_plans(paths, group_by_name=True):
@@ -1988,6 +2763,153 @@ def scan_plan(plan, read_func):
     plan.scanned = True
     plan.elapsed_ms = int((time.time() - t0) * 1000)
     return plan
+
+
+def product_label(islands):
+    """Lấy chữ ghi chú làm TÊN SẢN PHẨM (vd "TỦ 500", "W-01"), bỏ qua chữ
+    chỉ tên hình chiếu ("MẶT BẰNG", "MĐ CHÍNH")."""
+    for il in islands:
+        texts = [e.text for e in il.ents if e.kind == "TEXT" and e.text] + list(il.labels)
+        for t in texts:
+            t = (t or u"").strip()
+            if not t or len(t) > 40:
+                continue
+            kind, _kw = match_view_keyword(t)
+            if kind:
+                continue
+            if not re.search(r"\w", t, re.UNICODE):
+                continue
+            return t
+    return None
+
+
+def name_for_product(base_name, islands, index, total):
+    """Đặt tên family cho 1 sản phẩm trong file có nhiều sản phẩm."""
+    if total <= 1:
+        return base_name
+    label = product_label(islands)
+    if label:
+        if re.search(r"[^\W\d_]", label, re.UNICODE):     # có chữ cái -> dùng luôn
+            return label
+        return u"%s-%s" % (base_name, label)               # chỉ có số -> ghép hậu tố
+    return u"%s-%02d" % (base_name, index + 1)
+
+
+def finalize_plan(plan, synth=True, nest=True, max_parts=MAX_NESTED_PARTS):
+    """Chốt 1 kế hoạch sau khi đã có views + kích thước:
+      1) TỰ SUY RA hình chiếu còn thiếu (mặt bằng / mặt đứng / mặt bên)
+      2) Tách khoang để lát nữa dựng family con lồng vào family mẹ
+      3) Ghi lại toạ độ thật trên CAD (để đặt đúng vị trí vào project)"""
+    if synth:
+        try:
+            plan.views, made = synthesize_views(
+                plan.views, plan.length, plan.width, plan.height, plan.category)
+            plan.synth = made
+            if made:
+                names = {"PLAN": u"mặt bằng", "FRONT": u"mặt đứng chính", "LEFT": u"mặt bên"}
+                plan.warnings.append(
+                    u"Đã TỰ SUY RA %s bằng phép chiếu vuông góc từ hình chiếu có sẵn."
+                    % u", ".join(names.get(k, k) for k in made))
+        except Exception as ex:
+            plan.warnings.append(u"Không suy được hình chiếu thiếu: %s" % ex)
+
+    if nest:
+        try:
+            front = plan.views.get("FRONT") or plan.views.get("BACK")
+            parts, equal = build_subparts(front, plan.length, plan.width,
+                                          plan.height, max_parts)
+            plan.parts = parts
+            plan.parts_equal = equal
+        except Exception as ex:
+            plan.warnings.append(u"Không tách được khoang: %s" % ex)
+
+    if plan.cad_origin is None:
+        for k in ("PLAN", "FRONT", "BACK", "LEFT", "RIGHT"):
+            il = plan.views.get(k)
+            if il is not None and not il.synthetic and il.frame:
+                plan.cad_origin = bbox_center(il.frame)
+                break
+
+    if plan.views and not plan.status.startswith(u"✖"):
+        plan.status = u"✔ Sẵn sàng"
+    return plan
+
+
+def scan_products(plan, read_func, multi=True, synth=True, nest=True):
+    """Đọc 1 kế hoạch và TÁCH THÀNH NHIỀU SẢN PHẨM nếu file CAD chứa nhiều
+    sản phẩm (dãy tủ, dãy bếp, cả trang ký hiệu đồ đạc...).
+
+    Trả về DANH SÁCH FamilyPlan. File chỉ có 1 sản phẩm, hoặc bộ file đã
+    gộp theo hậu tố hình chiếu, thì trả về đúng 1 phần tử."""
+    t0 = time.time()
+    single = (not multi) or len(plan.sources) != 1 or plan.sources[0].forced_kind
+    if single:
+        scan_plan(plan, read_func)
+        finalize_plan(plan, synth, nest)
+        return [plan]
+
+    src = plan.sources[0]
+    caddoc, err = read_func(src.path)
+    src.caddoc = caddoc
+    src.error = err
+    if err or caddoc is None:
+        plan.warnings.append(u"%s: %s" % (os.path.basename(src.path), err or u"không đọc được"))
+        plan.status = u"✖ Lỗi đọc CAD"
+        plan.scanned = True
+        return [plan]
+
+    ents = filter_for_analysis(caddoc.entities)
+    islands = drop_noise_islands(attach_labels(cluster_islands(ents)))
+    src.islands = islands
+    if not islands:
+        plan.warnings.append(u"%s: không có nét nào dùng được." % os.path.basename(src.path))
+        plan.status = u"⚠ Không nhận ra hình chiếu"
+        plan.scanned = True
+        return [plan]
+
+    groups = group_products(islands, True)
+    base_name = plan.family_name
+    fname = os.path.basename(src.path)
+    layers_blob = u" ".join(caddoc.layers()[:400])
+    out = []
+    for gi, group in enumerate(groups):
+        classify_islands(group, fname)
+        views = {}
+        for il in group:
+            if il.kind and il.kind != "EXTRA" and il.kind not in views:
+                views[il.kind] = il
+        if not views:
+            continue
+        p = FamilyPlan(name_for_product(base_name, group, gi, len(groups)),
+                       [FamilySource(src.path, None)])
+        p.product_index = gi
+        p.sources[0].caddoc = caddoc
+        p.views = views
+        p.unit_name = caddoc.unit_name
+        p.warnings = list(caddoc.warnings) if gi == 0 else []
+        texts_blob = u" ".join([t for il in group for t in
+                                ([e.text for e in il.ents if e.kind == "TEXT" and e.text] + il.labels)])
+        p.category = guess_category(p.family_name, fname, layers_blob, texts_blob)
+        dl, dw, dh, note = infer_dimensions(list(views.values()), p.category)
+        p.length, p.width, p.height = dl, dw, dh
+        reasons = [u"%s: %s" % (k, views[k].reason) for k in
+                   ("PLAN", "FRONT", "BACK", "LEFT", "RIGHT")
+                   if k in views and views[k].reason]
+        p.detect_note = u" | ".join([note] + reasons[:2])
+        p.status = u"✔ Sẵn sàng"
+        p.scanned = True
+        finalize_plan(p, synth, nest)
+        p.elapsed_ms = int((time.time() - t0) * 1000 / max(len(groups), 1))
+        out.append(p)
+
+    if not out:
+        plan.status = u"⚠ Không nhận ra hình chiếu"
+        plan.scanned = True
+        return [plan]
+    if len(out) > 1:
+        out[0].warnings.append(u"File chứa %d sản phẩm — đã tách thành %d family riêng."
+                               % (len(out), len(out)))
+    return out
 
 
 def dxf_reader(path):
@@ -2525,7 +3447,7 @@ def make_view_map(kind, island, length_mm, width_mm, height_mm, fit=True):
     """Dựng PlaneMap cho 1 hình chiếu: căn giữa theo phương ngang, đặt đáy
     mặt đứng đúng cao độ 0, và co giãn cho khớp Dài/Rộng/Cao."""
     frame = VIEW_FRAME.get(kind, VIEW_FRAME["FRONT"])
-    bb = island.bbox
+    bb = island.frame
     if not bb:
         return None
     bw, bh = bbox_size(bb)
@@ -2941,6 +3863,352 @@ def _apply_symbolic_visibility(sym, kind, warnings):
         pass
 
 
+CHILD_SUBDIR = u"_FAMILY_CON"
+
+
+def find_family_symbol(rdoc, family_name):
+    """Tìm FamilySymbol theo tên Family trong 1 tài liệu."""
+    try:
+        for sym in FilteredElementCollector(rdoc).OfClass(FamilySymbol):
+            try:
+                fam = sym.Family
+                if fam is not None and fam.Name == family_name:
+                    return sym
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return None
+
+
+def activate_symbol(sym):
+    try:
+        if not sym.IsActive:
+            sym.Activate()
+    except Exception:
+        pass
+    return sym
+
+
+def child_family_name(parent_name, part):
+    w, d, h = part.key
+    return sanitize_family_name(u"%s_BP %dx%dx%d" % (parent_name, w, d, h))
+
+
+def build_child_family(parent_name, part, front_island, ctx, warnings):
+    """Dựng 1 FAMILY CON = 1 khoang của sản phẩm: hộp THAM SỐ HOÀN TOÀN
+    (Dài/Rộng/Cao là tham số Instance, 6 mặt khoá vào Reference Plane nên co
+    giãn 100%) + nét CAD của đúng khoang đó vẽ trên mặt đứng.
+
+    Các khoang TRÙNG KÍCH THƯỚC dùng chung 1 family con (cache theo tên) —
+    tủ 4 cánh bằng nhau chỉ tốn 1 family con thay vì 4, nhanh hơn hẳn."""
+    name = child_family_name(parent_name, part)
+    cache = ctx.setdefault("child_cache", {})
+    if name in cache:
+        return cache[name], name
+
+    tpl = pick_template("GenericModel", ctx["template_root"], ctx.get("template_map"))
+    if not tpl or not os.path.isfile(tpl):
+        warnings.append(u"Không có template Generic Model để dựng family con.")
+        return None, None
+
+    out_dir = os.path.join(ctx["out_dir"], CHILD_SUBDIR)
+    if not ensure_dir(out_dir):
+        warnings.append(u"Không tạo được thư mục family con: %s" % out_dir)
+        return None, None
+    path = os.path.join(out_dir, u"%s.rfa" % name)
+
+    L_ft = mm_to_ft(part.width)
+    W_ft = mm_to_ft(part.depth)
+    H_ft = mm_to_ft(part.height)
+    try:
+        fdoc = ctx["app"].NewFamilyDocument(tpl)
+    except Exception as ex:
+        warnings.append(u"Không mở được template cho family con: %s" % ex)
+        return None, None
+
+    try:
+        t = Transaction(fdoc, u"Dựng family con")
+        t.Start()
+        try:
+            fm = fdoc.FamilyManager
+            ensure_type(fm, u"Chuẩn")
+            # Tham số của family con BẮT BUỘC là Instance thì mới liên kết
+            # (associate) được với tham số của family mẹ.
+            cp_len = add_param(fm, P_LEN, "LENGTH", "GEOM", True, warnings)
+            cp_wid = add_param(fm, P_WID, "LENGTH", "GEOM", True, warnings)
+            cp_hgt = add_param(fm, P_HGT, "LENGTH", "GEOM", True, warnings)
+            set_param_value(fm, cp_len, L_ft, warnings)
+            set_param_value(fm, cp_wid, W_ft, warnings)
+            set_param_value(fm, cp_hgt, H_ft, warnings)
+
+            views = get_family_views(fdoc)
+            v_plan = views.get("PLAN")
+            v_front = views.get("FRONT") or views.get("BACK")
+            rp = {}
+            if v_plan is not None:
+                cut = XYZ(0, 0, 1)
+                span = max(L_ft, W_ft)
+                rp["L"] = create_ref_plane(fdoc, v_plan, XYZ(-L_ft / 2.0, -span, 0),
+                                           XYZ(-L_ft / 2.0, span, 0), cut, u"Cạnh Trái", warnings)
+                rp["R"] = create_ref_plane(fdoc, v_plan, XYZ(L_ft / 2.0, -span, 0),
+                                           XYZ(L_ft / 2.0, span, 0), cut, u"Cạnh Phải", warnings)
+                rp["F"] = create_ref_plane(fdoc, v_plan, XYZ(-span, -W_ft / 2.0, 0),
+                                           XYZ(span, -W_ft / 2.0, 0), cut, u"Cạnh Trước", warnings)
+                rp["B"] = create_ref_plane(fdoc, v_plan, XYZ(-span, W_ft / 2.0, 0),
+                                           XYZ(span, W_ft / 2.0, 0), cut, u"Cạnh Sau", warnings)
+                label_dimension(fdoc, v_plan, rp["L"].GetReference(), rp["R"].GetReference(),
+                                Line.CreateBound(XYZ(-L_ft / 2.0, W_ft * 0.8, 0),
+                                                 XYZ(L_ft / 2.0, W_ft * 0.8, 0)),
+                                cp_len, warnings, P_LEN)
+                label_dimension(fdoc, v_plan, rp["F"].GetReference(), rp["B"].GetReference(),
+                                Line.CreateBound(XYZ(L_ft * 0.8, -W_ft / 2.0, 0),
+                                                 XYZ(L_ft * 0.8, W_ft / 2.0, 0)),
+                                cp_wid, warnings, P_WID)
+            if v_front is not None:
+                rp["T"] = create_ref_plane(fdoc, v_front, XYZ(-L_ft, 0, H_ft),
+                                           XYZ(L_ft, 0, H_ft), XYZ(0, 1, 0), u"Đỉnh", warnings)
+                base_ref = level_plane_ref(fdoc)
+                if rp.get("T") and base_ref is not None:
+                    label_dimension(fdoc, v_front, base_ref, rp["T"].GetReference(),
+                                    Line.CreateBound(XYZ(L_ft * 0.8, 0, 0), XYZ(L_ft * 0.8, 0, H_ft)),
+                                    cp_hgt, warnings, P_HGT)
+
+            sp = SketchPlane.Create(fdoc, Plane.CreateByNormalAndOrigin(XYZ(0, 0, 1), XYZ(0, 0, 0)))
+            arr = CurveArrArray()
+            arr.Append(rect_curve_array(L_ft, W_ft))
+            ext = fdoc.FamilyCreate.NewExtrusion(True, arr, sp, H_ft)
+            try:
+                fdoc.Regenerate()
+            except Exception:
+                pass
+            if v_front is not None and rp.get("T"):
+                align_face(fdoc, v_front, rp["T"], ext, (0, 0, 1), warnings, P_HGT)
+            if v_plan is not None:
+                for key, direction, tag in (("R", (1, 0, 0), u"phải"), ("L", (-1, 0, 0), u"trái"),
+                                            ("B", (0, 1, 0), u"sau"), ("F", (0, -1, 0), u"trước")):
+                    if rp.get(key):
+                        align_face(fdoc, v_plan, rp[key], ext, direction, warnings, tag)
+
+            # nét CAD của riêng khoang này, vẽ lên mặt đứng của family con
+            if front_island is not None and ctx.get("child_linework", True):
+                sub = crop_island(front_island, part.draw_x0, part.draw_x1)
+                if sub is not None:
+                    _draw_child_front(fdoc, sub, part, ctx, warnings)
+            t.Commit()
+        except Exception:
+            try:
+                t.RollBack()
+            except Exception:
+                pass
+            raise
+
+        so = SaveAsOptions()
+        try:
+            so.OverwriteExistingFile = True
+            so.MaximumBackups = 1
+        except Exception:
+            pass
+        fdoc.SaveAs(path, so)
+        cache[name] = path
+        return path, name
+    except Exception as ex:
+        warnings.append(u"Lỗi dựng family con '%s': %s" % (name, ex))
+        return None, None
+    finally:
+        try:
+            fdoc.Close(False)
+        except Exception:
+            pass
+
+
+def _draw_child_front(fdoc, sub_island, part, ctx, warnings):
+    """Vẽ nét CAD của khoang lên mặt đứng của family con."""
+    pmap = make_view_map("FRONT", sub_island, part.width, part.depth, part.height,
+                         ctx.get("fit_to_params", True))
+    if pmap is None:
+        return 0
+    frame = VIEW_FRAME["FRONT"]
+    try:
+        sp = SketchPlane.Create(fdoc, Plane.CreateByNormalAndOrigin(
+            XYZ(frame["n"][0], frame["n"][1], frame["n"][2]), pmap.origin_xyz()))
+    except Exception as ex:
+        warnings.append(u"Family con: không tạo được mặt phẳng vẽ: %s" % ex)
+        return 0
+    simp = TURBO_SIMPLIFY_TOL_MM if ctx.get("turbo") else 0.0
+    cap = 600
+    n = 0
+    for ent in sub_island.drawable():
+        if is_noise_layer(ent.layer) or n >= cap:
+            break
+        for cur in ent_to_revit_curves(ent, pmap, simp):
+            if n >= cap:
+                break
+            try:
+                el = fdoc.FamilyCreate.NewSymbolicCurve(cur, sp)
+                _apply_symbolic_visibility(el, "FRONT", warnings)
+                n += 1
+            except Exception:
+                continue
+    return n
+
+
+def associate_instance_param(fm, inst, param_name, fam_param, warnings):
+    """Gán tham số của FamilyInstance con vào tham số của family MẸ — kéo
+    tham số mẹ là các con chạy theo."""
+    if fam_param is None or inst is None:
+        return False
+    try:
+        p = inst.LookupParameter(param_name)
+        if p is None:
+            return False
+        fm.AssociateElementParameterToFamilyParameter(p, fam_param)
+        return True
+    except Exception as ex:
+        warnings.append(u"Không liên kết được tham số '%s' của family con: %s" % (param_name, ex))
+        return False
+
+
+def instance_center_reference(inst, horizontal=True):
+    """Lấy Reference mặt phẳng TÂM của 1 FamilyInstance để Align vào
+    Reference Plane của family mẹ."""
+    if FamilyInstanceReferenceType is None:
+        return None
+    try:
+        kind = (FamilyInstanceReferenceType.CenterLeftRight if horizontal
+                else FamilyInstanceReferenceType.CenterFrontBack)
+        refs = inst.GetReferences(kind)
+        for r in refs:
+            return r
+    except Exception:
+        return None
+    return None
+
+
+def prepare_children(plan, ctx, warnings):
+    """Dựng TRƯỚC toàn bộ family con của 1 sản phẩm (mỗi kích thước khoang
+    chỉ dựng 1 lần). Gọi TRƯỚC khi mở Transaction của family mẹ, vì tạo và
+    SaveAs một tài liệu Revit khác trong lúc tài liệu mẹ đang mở Transaction
+    là việc nên tránh."""
+    out = {}
+    parts = plan.parts or []
+    if len(parts) < 2:
+        return out
+    front = plan.views.get("FRONT") or plan.views.get("BACK")
+    for part in parts:
+        if part.key in out:
+            continue
+        path, name = build_child_family(plan.family_name, part, front, ctx, warnings)
+        if path and name:
+            out[part.key] = (path, name)
+    return out
+
+
+def nest_children(fdoc, plan, ctx, fm, params, rp, v_plan, warnings):
+    """Dựng các FAMILY CON rồi LỒNG vào family mẹ, có ràng buộc đầy đủ:
+
+      • Kích thước: Cao/Rộng của con liên kết thẳng vào Cao/Rộng của mẹ;
+        nếu các khoang ĐỀU NHAU thì Dài của con = công thức "Dài / n" của
+        mẹ — kéo Dài của mẹ là cả dãy khoang giãn đều theo.
+      • Vị trí: mỗi khoang có 1 Reference Plane riêng, đặt cách mép trái
+        đúng công thức "Dài × k", và mặt phẳng tâm của instance được
+        Align + Lock vào chính plane đó — nên khoang luôn nằm đúng chỗ
+        khi sản phẩm co giãn.
+
+    Trả về số family con đã lồng thành công."""
+    parts = plan.parts or []
+    if len(parts) < 2:
+        return 0
+    if StructuralType is None:
+        warnings.append(u"Không có StructuralType — bỏ qua lồng family con.")
+        return 0
+
+    p_len, p_wid, p_hgt = params.get("L"), params.get("W"), params.get("H")
+    child_paths = ctx.get("_child_paths") or {}
+
+    # 1) Nạp family con đã dựng sẵn (mỗi kích thước chỉ 1 lần)
+    sym_by_key = {}
+    for part in parts:
+        if part.key in sym_by_key:
+            continue
+        path, name = child_paths.get(part.key, (None, None))
+        if not path or not name:
+            continue
+        try:
+            fdoc.LoadFamily(path)
+        except Exception as ex:
+            warnings.append(u"Không nạp được family con '%s': %s" % (name, ex))
+            continue
+        sym = find_family_symbol(fdoc, name)
+        if sym is None:
+            warnings.append(u"Nạp xong nhưng không thấy family con '%s'." % name)
+            continue
+        sym_by_key[part.key] = activate_symbol(sym)
+        if path not in plan.child_files:
+            plan.child_files.append(path)
+    if not sym_by_key:
+        return 0
+
+    # 2) Tham số bề rộng khoang (dùng chung khi các khoang đều nhau)
+    bay_param = None
+    if plan.parts_equal and p_len is not None:
+        bay_param = add_param(fm, u"Rộng khoang", "LENGTH", "GEOM", False, warnings)
+        set_param_formula(fm, bay_param, u"%s / %d" % (P_LEN, len(parts)), warnings)
+
+    L_ft = mm_to_ft(plan.length)
+    W_ft = mm_to_ft(plan.width)
+    n_ok = 0
+    for i, part in enumerate(parts):
+        sym = sym_by_key.get(part.key)
+        if sym is None:
+            continue
+        x_ft = mm_to_ft(part.center - plan.length / 2.0)
+        try:
+            inst = fdoc.FamilyCreate.NewFamilyInstance(
+                XYZ(x_ft, 0.0, 0.0), sym, StructuralType.NonStructural)
+        except Exception as ex:
+            warnings.append(u"Không đặt được family con khoang %d: %s" % (i + 1, ex))
+            continue
+        n_ok += 1
+
+        associate_instance_param(fm, inst, P_HGT, p_hgt, warnings)
+        associate_instance_param(fm, inst, P_WID, p_wid, warnings)
+        if bay_param is not None:
+            associate_instance_param(fm, inst, P_LEN, bay_param, warnings)
+
+        # 3) Ràng buộc VỊ TRÍ theo công thức "Dài × k"
+        if v_plan is None or rp.get("L") is None or p_len is None:
+            continue
+        k = (part.center / plan.length) if plan.length > 0 else 0.5
+        try:
+            plane = create_ref_plane(
+                fdoc, v_plan, XYZ(x_ft, -max(L_ft, W_ft), 0), XYZ(x_ft, max(L_ft, W_ft), 0),
+                XYZ(0, 0, 1), u"Vị trí khoang %d" % (i + 1), warnings)
+            if plane is None:
+                continue
+            pos_param = add_param(fm, u"Vị trí khoang %d" % (i + 1), "LENGTH", "GEOM", False, warnings)
+            label_dimension(fdoc, v_plan, rp["L"].GetReference(), plane.GetReference(),
+                            Line.CreateBound(XYZ(-L_ft / 2.0, -W_ft * 0.9, 0),
+                                             XYZ(x_ft, -W_ft * 0.9, 0)),
+                            pos_param, warnings, u"vị trí khoang %d" % (i + 1))
+            set_param_formula(fm, pos_param, u"%s * %.6f" % (P_LEN, k), warnings)
+            iref = instance_center_reference(inst, True)
+            if iref is not None:
+                try:
+                    al = fdoc.FamilyCreate.NewAlignment(v_plan, plane.GetReference(), iref)
+                    try:
+                        al.IsLocked = True
+                    except Exception:
+                        pass
+                except Exception as ex:
+                    warnings.append(u"Không khoá được vị trí khoang %d: %s" % (i + 1, ex))
+        except Exception as ex:
+            warnings.append(u"Lỗi ràng buộc vị trí khoang %d: %s" % (i + 1, ex))
+
+    plan.nested = n_ok
+    return n_ok
+
+
 def build_family(plan, ctx):
     """Tạo 1 file .rfa hoàn chỉnh từ 1 FamilyPlan. Trả về (đường_dẫn, ok).
     Mọi bước đều bọc try/except riêng: 1 bước hỏng (vd không khoá được ràng
@@ -2960,6 +4228,17 @@ def build_family(plan, ctx):
 
     out_path = None
     try:
+        # Family con dựng TRƯỚC (mỗi kích thước 1 lần), rồi mới mở
+        # Transaction của family mẹ để nạp và lồng vào.
+        ctx["_child_paths"] = {}
+        if (ctx.get("nest_children", True) and plan.mode != MODE_BOX
+                and len(plan.parts or []) >= 2):
+            try:
+                ctx["_child_paths"] = prepare_children(plan, ctx, warnings)
+            except Exception as ex:
+                warnings.append(u"Không dựng được family con: %s" % ex)
+                ctx["_child_paths"] = {}
+
         L_ft = mm_to_ft(plan.length)
         W_ft = mm_to_ft(plan.width)
         H_ft = mm_to_ft(plan.height)
@@ -3021,8 +4300,31 @@ def build_family(plan, ctx):
                                 Line.CreateBound(XYZ(L_ft * 0.8, 0, 0), XYZ(L_ft * 0.8, 0, H_ft)),
                                 p_hgt, warnings, P_HGT)
 
+            # --- FAMILY CON LỒNG VÀO FAMILY MẸ --------------------------
+            # Sản phẩm chia được thành nhiều khoang (tủ nhiều cánh, bếp
+            # nhiều module) thì mỗi khoang thành 1 family con có tham số
+            # riêng, lồng vào family mẹ và ràng buộc theo tham số của mẹ.
+            n_nested = 0
+            if ctx.get("_child_paths"):
+                try:
+                    n_nested = nest_children(fdoc, plan, ctx, fm,
+                                             {"L": p_len, "W": p_wid, "H": p_hgt},
+                                             rp, v_plan, warnings)
+                    if n_nested:
+                        warnings.append(u"Đã lồng %d family con (%d kiểu kích thước) vào family mẹ."
+                                        % (n_nested, len(set(pt.key for pt in plan.parts))))
+                except Exception as ex:
+                    warnings.append(u"Lỗi lồng family con: %s" % ex)
+                    n_nested = 0
+
             # --- Khối 3D ------------------------------------------------
-            ext, rect_like = build_extrusion(fdoc, plan, ctx, warnings)
+            # Đã lồng family con thì KHÔNG dựng thêm khối bao của mẹ nữa
+            # (tránh 2 lớp khối chồng nhau); trừ khi bạn bật tuỳ chọn giữ.
+            ext, rect_like = (None, True)
+            if n_nested == 0 or ctx.get("parent_solid_with_nesting", False):
+                ext, rect_like = build_extrusion(fdoc, plan, ctx, warnings)
+            else:
+                warnings.append(u"Khối của family mẹ do %d family con tạo nên." % n_nested)
 
             if ext is not None:
                 try:
@@ -3109,38 +4411,78 @@ def build_family(plan, ctx):
             pass
 
 
-def load_families_into_project(project_doc, paths, warnings):
-    """Nạp các .rfa vừa tạo vào project đang mở, trong ĐÚNG 1 Transaction.
+def load_families_into_project(project_doc, plans, warnings, place_at_cad=False):
+    """Nạp các .rfa vừa tạo vào project đang mở, trong ĐÚNG 1 Transaction,
+    và (tuỳ chọn) ĐẶT LUÔN family vào ĐÚNG TOẠ ĐỘ mà nó nằm trên bản CAD.
+
     Dùng Document.LoadFamily(string) — bản KHÔNG cần IFamilyLoadOptions, vì
     hiện thực 1 interface .NET từ Python sẽ kích hoạt TypeBuilder và làm
-    crash CPython3 trong Revit (xem ghi chú GUI ở đầu file)."""
-    if not paths or project_doc is None:
-        return 0
+    crash CPython3 trong Revit (xem ghi chú GUI ở đầu file).
+
+    Trả về (số family đã nạp, số family đã đặt vào view)."""
+    if not plans or project_doc is None:
+        return 0, 0
     if DYNAMO_ENV and TransactionManager is not None:
         try:
             TransactionManager.Instance.ForceCloseTransaction()
         except Exception:
             pass
-    n = 0
+
+    n_load, n_place = 0, 0
     t = Transaction(project_doc, u"Nạp family từ CAD")
     t.Start()
     try:
-        for p in paths:
+        for plan in plans:
+            path = getattr(plan, "out_path", None)
+            if not path:
+                continue
             try:
-                if project_doc.LoadFamily(p):
-                    n += 1
-                else:
-                    warnings.append(u"Family '%s' đã có sẵn trong project — bỏ qua nạp lại."
-                                    % os.path.basename(p))
+                if project_doc.LoadFamily(path):
+                    n_load += 1
             except Exception as ex:
-                warnings.append(u"Không nạp được '%s': %s" % (os.path.basename(p), ex))
+                warnings.append(u"Không nạp được '%s': %s" % (os.path.basename(path), ex))
+        try:
+            project_doc.Regenerate()
+        except Exception:
+            pass
+
+        if place_at_cad:
+            lvl = None
+            try:
+                lvl = project_doc.ActiveView.GenLevel
+            except Exception:
+                lvl = None
+            if lvl is None:
+                try:
+                    lvl = FilteredElementCollector(project_doc).OfClass(Level).FirstElement()
+                except Exception:
+                    lvl = None
+            for plan in plans:
+                if not getattr(plan, "out_path", None) or not plan.cad_origin:
+                    continue
+                sym = find_family_symbol(project_doc, plan.family_name)
+                if sym is None:
+                    continue
+                activate_symbol(sym)
+                pt = XYZ(mm_to_ft(plan.cad_origin[0]), mm_to_ft(plan.cad_origin[1]), 0.0)
+                try:
+                    if lvl is not None and StructuralType is not None:
+                        project_doc.Create.NewFamilyInstance(pt, sym, lvl, StructuralType.NonStructural)
+                    elif StructuralType is not None:
+                        project_doc.Create.NewFamilyInstance(pt, sym, StructuralType.NonStructural)
+                    else:
+                        continue
+                    n_place += 1
+                except Exception as ex:
+                    warnings.append(u"Không đặt được '%s' vào view: %s" % (plan.family_name, ex))
         t.Commit()
-    except Exception:
+    except Exception as ex:
+        warnings.append(u"Lỗi khi nạp family vào project: %s" % ex)
         try:
             t.RollBack()
         except Exception:
             pass
-    return n
+    return n_load, n_place
 
 
 # ------------------------------------------------------------------------
@@ -3314,8 +4656,8 @@ if GUI_AVAILABLE:
     GRID_COLS = [
         (u"✔", 34, False), (u"TÊN FAMILY", 230, False), (u"DANH MỤC", 110, False),
         (u"CHẾ ĐỘ", 90, False), (u"DÀI (mm)", 80, False), (u"RỘNG (mm)", 80, False),
-        (u"CAO (mm)", 80, False), (u"HÌNH CHIẾU", 110, True), (u"FILE CAD", 200, True),
-        (u"TRẠNG THÁI / NHẬN DIỆN", 380, True),
+        (u"CAO (mm)", 80, False), (u"HÌNH CHIẾU", 108, True), (u"KHOANG", 90, True),
+        (u"FILE CAD", 180, True), (u"TRẠNG THÁI / NHẬN DIỆN", 360, True),
     ]
 
     def build_plan_grid(x, y, w, h):
@@ -3376,13 +4718,14 @@ if GUI_AVAILABLE:
             r.Cells[5].Value = fmt_mm(p.width)
             r.Cells[6].Value = fmt_mm(p.height)
             r.Cells[7].Value = p.views_display()
-            r.Cells[8].Value = p.src_display
-            r.Cells[9].Value = u"%s — %s" % (p.status, p.detect_note or u"")
+            r.Cells[8].Value = p.parts_display()
+            r.Cells[9].Value = p.src_display
+            r.Cells[10].Value = u"%s — %s" % (p.status, p.detect_note or u"")
             try:
                 if p.status.startswith(u"✖"):
-                    r.Cells[9].Style.ForeColor = C_ERR
+                    r.Cells[10].Style.ForeColor = C_ERR
                 elif p.status.startswith(u"✔"):
-                    r.Cells[9].Style.ForeColor = C_OK
+                    r.Cells[10].Style.ForeColor = C_OK
             except Exception:
                 pass
 
@@ -3441,7 +4784,7 @@ def run_gui(state, ctx):
         add_label(header, u"Mặt bằng + 4 mặt đứng • Tham số Dài/Rộng/Cao co giãn • Công thức tự động",
                   16, 32, 820, 20, C_TEXT_DIM, False, 9.0)
         badge = Label()
-        badge.Text = u"⚡ %d dòng • 1 TRANSACTION / FAMILY" % len(plans)
+        badge.Text = u"⚡ %d sản phẩm • 1 TRANSACTION / FAMILY" % len(plans)
         badge.Size = Size(280, 30)
         badge.Location = Point(cw - 12 - 280, 13)
         badge.TextAlign = ContentAlignment.MiddleCenter
@@ -3478,8 +4821,15 @@ def run_gui(state, ctx):
         anchor(add_button(f, u"⚙ Áp dụng cho dòng đang chọn", cw - 12 - 230, y3 - 2, 230, 28,
                           DialogResult.No), A_TR)
 
+        y3b = y3 + 26
+        chk_multi = add_check(f, u"Tách nhiều sản phẩm / 1 file", 12, y3b, 190,
+                              state["multi_product"])
+        chk_synth = add_check(f, u"Tự suy hình chiếu thiếu", 206, y3b, 180, state["synth_views"])
+        chk_nest = add_check(f, u"Family con lồng nhau", 390, y3b, 170, state["nest_children"])
+        chk_pos = add_check(f, u"Đặt đúng vị trí CAD", 564, y3b, 165, state["place_at_cad"])
+
         # --- hàng 4: thanh áp dụng nhanh --------------------------------
-        y4 = y3 + 32
+        y4 = y3b + 30
         add_label(f, u"Áp dụng nhanh cho các dòng đang bôi chọn →", 12, y4 + 4, 250, 22,
                   C_GOLD, True, 9.0)
         cmb_cat = add_combo(f, CAT_CHOICES, 266, y4, 215, 26, bulk_cat)
@@ -3519,6 +4869,10 @@ def run_gui(state, ctx):
         state["instance_params"] = bool(chk_inst.Checked)
         state["draw_back_right"] = bool(chk_back.Checked)
         state["load_project"] = bool(chk_load.Checked)
+        state["multi_product"] = bool(chk_multi.Checked)
+        state["synth_views"] = bool(chk_synth.Checked)
+        state["nest_children"] = bool(chk_nest.Checked)
+        state["place_at_cad"] = bool(chk_pos.Checked)
         bulk_cat = cmb_cat.SelectedIndex if cmb_cat.SelectedIndex >= 0 else 0
         bulk_mode = cmb_mode.SelectedIndex if cmb_mode.SelectedIndex >= 0 else 0
         bulk_h = parse_number(txt_bulk_h.Text, None)
@@ -3527,6 +4881,9 @@ def run_gui(state, ctx):
         ctx["turbo"] = state["turbo"]
         ctx["instance_params"] = state["instance_params"]
         ctx["draw_back_right"] = state["draw_back_right"]
+        ctx["nest_children"] = state["nest_children"]
+        ctx["load_project"] = state["load_project"]
+        ctx["place_at_cad"] = state["place_at_cad"]
 
         if dr == DialogResult.Ignore:          # chọn thư mục CAD
             try:
@@ -3571,11 +4928,16 @@ def run_gui(state, ctx):
             if not files:
                 status_msg = u"⚠ Không tìm thấy file .dwg/.dxf nào ở đường dẫn đã nhập."
                 continue
-            new_plans = group_files_into_plans(files, state["group"])
+            seeds = group_files_into_plans(files, state["group"])
+            new_plans = []
+            for seed in seeds:
+                new_plans.extend(scan_products(seed, ctx["read_func"],
+                                               state["multi_product"],
+                                               state["synth_views"],
+                                               state["nest_children"]))
             names = set()
             for p in new_plans:
-                p.family_name = unique_name(p.family_name, names)
-                scan_plan(p, ctx["read_func"])
+                p.family_name = unique_name(sanitize_family_name(p.family_name), names)
                 p.template_path = pick_template(p.category, ctx["template_root"], ctx.get("template_map"))
                 if not p.template_path:
                     p.status = u"✖ Không thấy template .rft"
@@ -3584,9 +4946,12 @@ def run_gui(state, ctx):
                 state["out_dir"] = default_output_dir(files)
             ms = int((time.time() - t_scan) * 1000)
             ok = sum(1 for p in new_plans if p.status.startswith(u"✔"))
-            status_msg = (u"Đã quét %d file → %d family, %d dòng sẵn sàng, mất %d ms "
-                          u"(%.1f file/giây)." % (len(files), len(new_plans), ok, ms,
-                                                  (len(files) / (ms / 1000.0)) if ms > 0 else 0.0))
+            n_synth = sum(1 for p in new_plans if p.synth)
+            n_nest = sum(1 for p in new_plans if len(p.parts or []) >= 2)
+            status_msg = (u"Đã quét %d file → %d sản phẩm (%d sẵn sàng, %d có hình chiếu tự suy, "
+                          u"%d có family con), mất %d ms (%.1f file/giây)."
+                          % (len(files), len(new_plans), ok, n_synth, n_nest, ms,
+                             (len(files) / (ms / 1000.0)) if ms > 0 else 0.0))
             continue
 
         if dr == DialogResult.No:              # áp dụng nhanh
@@ -3628,6 +4993,14 @@ def run_gui(state, ctx):
             result.update(res)
             result["status"] = "Done"
             rate = res["families_per_sec"]
+            extra = u""
+            if res.get("children"):
+                extra += u"\n• Family con     : %d kiểu, lồng %d lần" % (
+                    res["children"], res.get("nested", 0))
+            if res.get("loaded"):
+                extra += u"\n• Nạp vào project: %d family" % res["loaded"]
+            if res.get("placed"):
+                extra += u"\n• Đặt đúng vị trí CAD: %d cái" % res["placed"]
             MessageBox.Show(
                 u"Hoàn tất!\n\n"
                 u"• Tạo thành công : %d family\n"
@@ -3635,8 +5008,7 @@ def run_gui(state, ctx):
                 u"• Thời gian dựng : %d ms\n"
                 u"• Tốc độ thực đo : %.2f family/giây\n"
                 u"• Thư mục xuất   : %s%s"
-                % (res["created"], res["failed"], res["build_ms"], rate, state["out_dir"],
-                   (u"\n• Đã nạp vào project: %d family" % res["loaded"]) if res["loaded"] else u""),
+                % (res["created"], res["failed"], res["build_ms"], rate, state["out_dir"], extra),
                 u"CAD → REVIT FAMILY", MessageBoxButtons.OK, MessageBoxIcon.Information)
             status_msg = (u"✔ Xong: %d thành công / %d lỗi — %.2f family/giây."
                           % (res["created"], res["failed"], rate))
@@ -3678,16 +5050,25 @@ def run_batch(plans, ctx):
             failed += 1
     build_ms = int((time.time() - t0) * 1000)
 
-    loaded = 0
-    if ctx.get("load_project") and files and ctx.get("project_doc") is not None:
-        loaded = load_families_into_project(ctx["project_doc"], files, ctx.setdefault("warnings", []))
+    loaded, placed = 0, 0
+    done = [p for p in plans if p.out_path]
+    if (ctx.get("load_project") or ctx.get("place_at_cad")) and done \
+            and ctx.get("project_doc") is not None:
+        loaded, placed = load_families_into_project(
+            ctx["project_doc"], done, ctx.setdefault("warnings", []),
+            bool(ctx.get("place_at_cad")))
 
+    nested = sum(p.nested for p in plans)
+    children = len(set(f for p in plans for f in p.child_files))
     return {
         "created": created,
         "failed": failed,
         "files": files,
         "build_ms": build_ms,
         "loaded": loaded,
+        "placed": placed,
+        "nested": nested,
+        "children": children,
         "families_per_sec": round(created / (build_ms / 1000.0), 2) if build_ms > 0 and created else 0.0,
     }
 
@@ -3763,7 +5144,8 @@ def make_reader(cache, scratch_doc, scratch_view, warnings):
     return _read
 
 
-def run(elements, path_text, out_dir, template_dir, load_project, show_gui):
+def run(elements, path_text, out_dir, template_dir, load_project, show_gui,
+        place_at_cad=False):
     """Điều phối toàn bộ: chuẩn bị môi trường → quét → GUI → dựng hàng loạt."""
     t_all = time.time()
     warnings = []
@@ -3794,6 +5176,10 @@ def run(elements, path_text, out_dir, template_dir, load_project, show_gui):
         "fit_to_params": True,
         "formula_params": True,
         "load_project": bool(load_project),
+        "place_at_cad": bool(place_at_cad),
+        "nest_children": True,
+        "child_linework": True,
+        "parent_solid_with_nesting": False,
         "type_name": u"Chuẩn",
         "warnings": warnings,
     }
@@ -3813,13 +5199,15 @@ def run(elements, path_text, out_dir, template_dir, load_project, show_gui):
     ctx["read_func"] = read_func
 
     try:
-        plans = list(link_plans)
+        seeds = list(link_plans)
         if files:
-            plans.extend(group_files_into_plans(files, True))
+            seeds.extend(group_files_into_plans(files, True))
+        plans = []
+        for seed in seeds:
+            plans.extend(scan_products(seed, read_func, True, True, True))
         names = set()
         for p in plans:
-            p.family_name = unique_name(p.family_name, names)
-            scan_plan(p, read_func)
+            p.family_name = unique_name(sanitize_family_name(p.family_name), names)
             p.template_path = pick_template(p.category, template_root, ctx.get("template_map"))
             if not p.template_path:
                 p.status = u"✖ Không thấy template .rft"
@@ -3838,6 +5226,10 @@ def run(elements, path_text, out_dir, template_dir, load_project, show_gui):
             "instance_params": True,
             "draw_back_right": True,
             "load_project": bool(load_project),
+            "multi_product": True,
+            "synth_views": True,
+            "nest_children": True,
+            "place_at_cad": bool(place_at_cad),
         }
 
         if show_gui and GUI_AVAILABLE:
@@ -3867,11 +5259,12 @@ def run(elements, path_text, out_dir, template_dir, load_project, show_gui):
             pass
 
     report = [[u"Family", u"Danh mục", u"Dài", u"Rộng", u"Cao", u"Hình chiếu",
-               u"Trạng thái", u"ms", u"File .rfa"]]
+               u"Khoang", u"Family con", u"Trạng thái", u"ms", u"File .rfa"]]
     for p in plans:
         report.append([p.family_name, CAT_SHORT.get(p.category, p.category),
                        fmt_mm(p.length), fmt_mm(p.width), fmt_mm(p.height),
-                       p.views_display(), p.status, p.elapsed_ms, p.out_path])
+                       p.views_display(), p.parts_display(), p.nested,
+                       p.status, p.elapsed_ms, p.out_path])
         for w in p.warnings:
             warnings.append(u"[%s] %s" % (p.family_name, w))
 
@@ -3881,6 +5274,9 @@ def run(elements, path_text, out_dir, template_dir, load_project, show_gui):
         "Failed": res.get("failed", 0),
         "Files": res.get("files", []),
         "Loaded": res.get("loaded", 0),
+        "Placed": res.get("placed", 0),
+        "Nested": res.get("nested", 0),
+        "ChildFamilies": res.get("children", 0),
         "Report": report,
         "Warnings": warnings,
         "BuildMs": res.get("build_ms", 0),
@@ -3940,8 +5336,10 @@ try:
         _tpl_dir = _get_in(4, u"") or u""
         _load_prj = _get_in(5, False)
         _headless = _get_in(6, False)
+        _place_cad = _get_in(7, False)
         OUT = run(_elements, u"%s" % _path_text, u"%s" % _out_dir, u"%s" % _tpl_dir,
-                  bool(_load_prj), not bool(_headless))
+                  bool(_load_prj) or bool(_place_cad), not bool(_headless),
+                  bool(_place_cad))
 except Exception as _ex:
     OUT = {
         "Status": "Error", "Created": 0, "Failed": 0, "Files": [], "Report": [],

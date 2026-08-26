@@ -13,6 +13,9 @@ nét vẽ lại đúng theo CAD trên từng hình chiếu, tham số kéo giãn
 công thức. Có GUI dạng bảng để bạn duyệt và hiệu chỉnh từng dòng trước khi
 tạo.
 
+Tách được **nhiều sản phẩm trong 1 file CAD**, **tự suy ra hình chiếu còn
+thiếu**, và dựng **family con lồng vào family mẹ** có ràng buộc tham số.
+
 Xem chi tiết: [`RevitCadToFamily/README.md`](RevitCadToFamily/README.md)
 
 ## 2. RevitDynamoTable — Bảng dữ liệu kiểu Excel trên view Revit
